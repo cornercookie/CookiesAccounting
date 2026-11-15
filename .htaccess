@@ -1,0 +1,14 @@
+# Family Accounting System — disable directory listing
+Options -Indexes
+
+# Block direct access to sensitive files (e.g. .env)
+<IfModule mod_authz_core.c>
+    <Files ".env">
+        Require all denied
+    </Files>
+</IfModule>
+<IfModule !mod_authz_core.c>
+    <Files ".env">
+        Deny from all
+    </Files>
+</IfModule>

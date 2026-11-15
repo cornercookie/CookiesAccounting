@@ -1,0 +1,325 @@
+/* 全家人記帳系統 — 會計傳票 design system
+   紙白地／墨黑殼／傳票紅（收入）／傳票藍（支出）；標楷體顯示、Courier 等寬讀數。
+   Replace world: every page shares assets/style.css. */
+
+/* ---------- Color tokens ---------- */
+:root {
+  --paper:      #f6f3ea;
+  --paper-2:    #fffdf1;
+  --paper-3:    #efece0;
+  --ink:        #23272b;
+  --ink-2:      #6b675a;
+  --ink-3:      #8f8b7d;
+  --line:       #d8d4c6;
+  --line-dark:  #2e3338;
+  --side:       #23272b;
+  --side-2:     #2e3338;
+  --side-ink:   #f6f3ea;
+  --side-dim:   #a9a495;
+  --red:        #c0392b;
+  --red-deep:   #a02c20;
+  --red-tint:   #f6e3df;
+  --blue:       #1f4e79;
+  --blue-deep:  #163a5b;
+  --blue-tint:  #e3ebf3;
+  --focus:      #1f4e79;
+  --radius:     3px;
+  --shadow:     0 1px 2px rgba(35, 39, 43, 0.12), 0 4px 14px rgba(35, 39, 43, 0.07);
+}
+
+/* ---------- Spacing / type scale ---------- */
+:root {
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-8: 48px; --space-10: 64px;
+  --text-xs: 0.75rem; --text-sm: 0.875rem; --text-base: 1rem;
+  --text-lg: 1.125rem; --text-xl: 1.375rem; --text-2xl: 1.75rem;
+  --font-display: "DFKai-SB", "標楷體", KaiTi, "STKaiti", "Noto Serif TC", "PMingLiU", serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  --font-mono: "Courier New", Courier, ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+html { font-size: 100%; }
+
+::selection { background: #e8d9a6; color: var(--ink); }
+::caret-color { color: var(--blue); }
+
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 1px; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  line-height: 1.55;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ============================================
+   App shell：側欄＋主頁
+   ============================================ */
+.app { min-height: 100vh; display: flex; }
+
+/* ---------- 側欄（碳黑傳票殼） ---------- */
+.side {
+  background: var(--side);
+  color: var(--side-ink);
+  width: 232px;
+  flex: 0 0 232px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-5) var(--space-4) var(--space-4);
+  border-right: 1px solid var(--red);
+}
+
+.brand { text-decoration: none; color: inherit; display: block; padding-bottom: var(--space-4); border-bottom: 1px solid var(--line-dark); }
+.brand .brand-kicker { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.32em; color: var(--side-dim); display: block; }
+.brand b { font-family: var(--font-display); font-weight: 700; font-size: 1.28rem; letter-spacing: 0.04em; display: block; margin-top: var(--space-2); line-height: 1.35; }
+.brand .brand-mark { display: inline-flex; gap: 6px; margin-top: var(--space-2); }
+.brand .brand-mark i { width: 22px; height: 5px; border-radius: 1px; }
+.brand .brand-mark .in { background: var(--red); }
+.brand .brand-mark .out { background: #4a6f97; }
+
+.nav { flex: 1; margin-top: var(--space-5); }
+.nav-h { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.34em; color: var(--side-dim); margin: 0 2px var(--space-2); }
+.nav-item {
+  display: flex; align-items: center; gap: var(--space-2);
+  color: var(--side-ink); text-decoration: none;
+  font-size: var(--text-sm); padding: 10px 12px; margin: 2px 0;
+  border-left: 3px solid transparent; border-radius: var(--radius);
+}
+.nav-item:hover { background: var(--side-2); text-decoration: none; }
+.nav-item.active { background: var(--side-2); border-left-color: var(--red); font-weight: 700; }
+.nav-item .nav-ico { flex: 0 0 auto; opacity: 0.85; }
+
+.side-foot { border-top: 1px solid var(--line-dark); padding-top: var(--space-4); }
+.who { font-size: var(--text-sm); color: var(--side-dim); }
+.who b { color: var(--side-ink); font-weight: 700; }
+.role-chip {
+  display: inline-block; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em;
+  border: 1px solid var(--side-dim); border-radius: 2px; padding: 1px 6px; margin-left: var(--space-2);
+  vertical-align: 1px; color: var(--side-ink);
+}
+.role-chip.small { margin-left: 0; font-size: 9px; padding: 0 5px; flex: 0 0 auto; }
+
+/* 側欄「這本帳」：帳本名稱＋成員名單 */
+.rail { border-top: 1px solid var(--line-dark); padding-top: var(--space-4); margin-top: var(--space-4); }
+.rail-name { font-family: var(--font-display); font-weight: 700; font-size: var(--text-base); margin: var(--space-1) 2px var(--space-2); color: var(--side-ink); }
+.rail-members { list-style: none; margin: 0; padding: 0; }
+.rail-members li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: 4px 2px; font-size: var(--text-sm); color: var(--side-ink); }
+.rail-members .rail-user { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logout {
+  display: block; text-align: center; margin-top: var(--space-3);
+  font-size: var(--text-sm); padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--side-dim); border-radius: var(--radius);
+  color: var(--side-ink); text-decoration: none;
+}
+.logout:hover { background: var(--side-2); text-decoration: none; }
+
+/* ---------- 主頁 ---------- */
+.main {
+  flex: 1; min-width: 0;
+  background: var(--paper);
+  padding: var(--space-6) var(--space-6) var(--space-8);
+}
+.sheet { max-width: 1080px; margin: 0 auto; }
+
+.page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--space-4); border-bottom: 2px solid var(--ink); padding-bottom: var(--space-4); margin-bottom: var(--space-5); flex-wrap: wrap; }
+.page-head h1 { font-family: var(--font-display); font-size: var(--text-2xl); font-weight: 700; letter-spacing: 0.02em; margin: 0; line-height: 1.25; }
+.page-head .sub { font-size: var(--text-sm); color: var(--ink-2); margin-top: var(--space-1); }
+
+/* ---------- 三聯合計牌（傳票聯） ---------- */
+.plates { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); margin: var(--space-5) 0; }
+.plate {
+  background: var(--paper-2); border: 1px solid var(--line); border-top: 5px solid var(--ink);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+}
+.plate.in  { border-top-color: var(--red); }
+.plate.out { border-top-color: var(--blue); }
+.plate.net { border-top-color: var(--ink); }
+.plate small { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.28em; color: var(--ink-2); display: block; }
+.plate .v { font-family: var(--font-mono); font-weight: 700; font-size: 1.65rem; margin-top: var(--space-2); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.plate.in .v  { color: var(--red); }
+.plate.out .v { color: var(--blue); }
+.plate .v small { display: inline; font-size: 0.6em; color: inherit; letter-spacing: 0; }
+
+/* ---------- 表格（分錄表） ---------- */
+.table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; margin: var(--space-4) 0 var(--space-5); }
+.table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); background: var(--paper-2); border: 1px solid var(--line); min-width: 480px; }
+.table th, .table td { padding: 10px var(--space-3); text-align: left; border-bottom: 1px solid var(--line); }
+.table th { white-space: nowrap; }
+.table thead th { background: var(--ink); color: var(--side-ink); font-weight: 600; font-size: var(--text-xs); letter-spacing: 0.16em; }
+.table tbody tr:last-child td { border-bottom: none; }
+.table tbody tr:hover { background: #f4f1e4; }
+.table td.num, .table th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+.table td.ctr, .table th.ctr { text-align: center; }
+td.amt-in  { color: var(--red);  font-weight: 700; }
+td.amt-out { color: var(--blue); font-weight: 700; }
+
+/* 動作欄（直排雙按鈕） */
+.actions { display: flex; flex-direction: column; gap: var(--space-2); align-items: stretch; min-width: 112px; }
+
+/* 表格內表單：輸入/選單與其按鈕留呼吸空間，表單區塊間距一致 */
+.table td form .btn { margin-top: var(--space-2); }
+.table td form + form { margin-top: var(--space-2); }
+
+/* 傳票編號 chips */
+.vno { display: inline-block; font-family: var(--font-mono); font-weight: 700; font-size: 11px; letter-spacing: 0.05em; border-radius: 2px; padding: 2px 7px; color: #fffdf1; }
+.vno.in  { background: var(--red); }
+.vno.out { background: var(--blue); }
+.vno.plain { background: var(--ink); }
+
+/* 角色 chips */
+.role-tag { display: inline-block; font-family: var(--font-mono); font-size: 11px; border-radius: 2px; padding: 2px 8px; letter-spacing: 0.08em; border: 1px solid var(--line); color: var(--ink-2); background: var(--paper-3); }
+.role-tag.owner  { border-color: var(--red);  color: var(--red);  background: var(--red-tint); }
+.role-tag.admin  { border-color: var(--red);  color: var(--red);  background: var(--red-tint); }
+.role-tag.member { border-color: var(--blue); color: var(--blue); background: var(--blue-tint); }
+.role-tag.viewer { border-color: var(--line); color: var(--ink-2); }
+
+/* ---------- 按鈕 ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); white-space: nowrap;
+  background: var(--ink); color: var(--side-ink); border: 1px solid var(--ink);
+  padding: 11px var(--space-5); border-radius: var(--radius);
+  font-family: var(--font-body); font-size: var(--text-base); font-weight: 700;
+  cursor: pointer; text-decoration: none; min-height: 44px; letter-spacing: 0.04em;
+}
+.btn:hover { background: #3a4046; text-decoration: none; }
+.btn:active { background: #14171b; }
+.btn.primary { background: var(--red); border-color: var(--red-deep); }
+.btn.primary:hover { background: var(--red-deep); }
+.btn.secondary { background: transparent; color: var(--blue); border: 1.5px solid var(--blue); }
+.btn.secondary:hover { background: var(--blue-tint); }
+.btn.danger { background: var(--red); border-color: var(--red-deep); color: #fffdf1; }
+.btn.danger:hover { background: var(--red-deep); }
+.btn.sm { padding: 7px var(--space-4); font-size: var(--text-sm); min-height: 38px; }
+.btn:disabled, .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+
+/* 空狀態（虛線騎縫線框） */
+.empty { border: 1px dashed var(--line); padding: var(--space-5) var(--space-4); text-align: center; color: var(--ink-2); font-size: var(--text-sm); margin: var(--space-4) 0; }
+.btn-block { width: 100%; }
+
+/* ---------- 表單（立傳票） ---------- */
+.form { margin-top: var(--space-4); }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--space-5); }
+.field { margin-bottom: var(--space-4); }
+.field-full { grid-column: 1 / -1; }
+.label { display: block; font-size: var(--text-sm); font-weight: 700; margin-bottom: var(--space-2); color: var(--ink-2); letter-spacing: 0.02em; }
+.input, .select, .textarea {
+  width: 100%; padding: 12px var(--space-3); border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--paper-2); color: var(--ink); font-size: var(--text-base); font-family: inherit; min-height: 48px;
+}
+.input::placeholder, .textarea::placeholder { color: var(--ink-2); opacity: 1; }
+.input:focus, .select:focus, .textarea:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px var(--focus); }
+.textarea { resize: vertical; min-height: 96px; }
+.input.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* ---------- 查帳篩選列（find-voucher strip） ---------- */
+.filters {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3);
+  background: var(--paper-2); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4); margin: var(--space-5) 0 var(--space-4);
+}
+.filter { display: flex; flex-direction: column; gap: var(--space-1); }
+.filter-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.22em; color: var(--ink-2); }
+.filter-input { width: auto; min-width: 132px; }
+.filters .btn.sm { min-height: 44px; }
+.h3-meta { font-family: var(--font-mono); font-weight: 400; font-size: var(--text-xs); letter-spacing: 0.06em; color: var(--ink-2); margin-left: var(--space-3); }
+
+/* ---------- 分頁列 ---------- */
+.pager { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); margin: var(--space-4) 0 var(--space-2); }
+.pager-info { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+/* ---------- 警示訊息 ---------- */
+.alert { padding: var(--space-3) var(--space-4); margin-bottom: var(--space-4); border-radius: var(--radius); border: 1px solid; font-size: var(--text-sm); }
+.alert.error   { background: var(--red-tint); color: #7a241a; border-color: #e3b3ac; }
+.alert.success { background: #eaf1e6; color: #1d4a24; border-color: #bcd6ba; }
+
+/* ---------- 文字 ---------- */
+h1, h2, h3, h4 { font-family: var(--font-display); }
+h2 { font-size: var(--text-xl); margin: 0 0 var(--space-4); }
+h3 { font-size: var(--text-lg); margin: var(--space-4) 0 var(--space-3); }
+.meta, .text-muted { font-size: var(--text-sm); color: var(--ink-2); }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---------- 破線分隔（傳票騎縫線） ---------- */
+.tear { border: none; border-top: 2px dashed var(--line); margin: var(--space-5) 0; }
+
+/* ---------- 彙總區塊小標 ---------- */
+.summary-h { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.3em; color: var(--ink-2); margin: var(--space-5) 0 var(--space-2); }
+.ledger-link { color: inherit; }
+.ledger-link:hover { color: var(--blue); }
+.group-h { text-align: center !important; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.3em; border-bottom: 2px solid var(--paper); }
+.group-start { border-left: 1px solid rgba(255, 255, 255, 0.22) !important; }
+
+/* ---------- Dashboard 快速入口 ---------- */
+.quick-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: var(--space-4); margin-top: var(--space-3); }
+.quick-grid .quick:first-child { background: var(--ink); color: var(--side-ink); }
+.quick-grid .quick:first-child span { color: var(--side-dim); }
+.quick { display: block; background: var(--paper-2); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--space-4); text-decoration: none; color: inherit; transition: border-color 120ms ease-out; }
+.quick:hover { border-color: var(--ink); text-decoration: none; }
+.quick b { display: block; font-family: var(--font-display); font-size: var(--text-lg); font-weight: 700; margin-bottom: var(--space-1); }
+.quick span { font-size: var(--text-sm); color: var(--ink-2); line-height: 1.5; }
+
+/* ============================================
+   登入頁（對外傳票）
+   ============================================ */
+.login-page { min-height: 100vh; display: grid; grid-template-columns: 1.05fr 1fr; background: var(--side); }
+.login-hero { position: relative; display: flex; flex-direction: column; justify-content: center; padding: var(--space-8) var(--space-8); color: var(--side-ink); }
+.login-hero .seal {
+  width: 84px; height: 84px; border-radius: 50%; border: 3px double #c0392b; color: #f0e0d6;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: 700; font-size: 20px; line-height: 1.3;
+  transform: rotate(-7deg); margin-bottom: var(--space-5); background: rgba(192,57,43,0.12);
+}
+.login-hero h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(2rem, 4vw, 3.1rem); line-height: 1.2; margin: 0 0 var(--space-4); letter-spacing: 0.02em; }
+.login-hero p { color: var(--side-dim); font-size: var(--text-lg); max-width: 34ch; margin: 0; }
+.login-hero .stamp-row { display: flex; gap: var(--space-3); margin-top: var(--space-6); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; color: var(--side-dim); }
+.login-hero .stamp-row i { border: 1px solid var(--side-dim); border-radius: 2px; padding: 4px 10px; font-style: normal; }
+.login-panel { display: flex; align-items: center; justify-content: center; padding: var(--space-6); background: var(--paper); }
+.login-card { width: 100%; max-width: 400px; background: var(--paper-2); border: 1px solid var(--line); border-top: 6px double var(--ink); border-radius: var(--radius); box-shadow: var(--shadow); padding: var(--space-6); }
+.login-card h2 { font-size: var(--text-xl); margin: 0 0 var(--space-1); }
+.login-card .sub { font-size: var(--text-sm); color: var(--ink-2); margin: 0 0 var(--space-5); }
+
+/* ============================================
+   RWD
+   ============================================ */
+@media (max-width: 900px) {
+  .login-page { grid-template-columns: 1fr; }
+  .login-hero { padding: var(--space-6) var(--space-5); align-items: flex-start; min-height: auto; }
+  .login-hero p { font-size: var(--text-base); }
+  .login-panel { padding: var(--space-4); }
+  .plates { grid-template-columns: 1fr; }
+  .form-grid { grid-template-columns: 1fr; }
+  .main { padding: var(--space-4) var(--space-4) var(--space-8); }
+}
+
+@media (max-width: 720px) {
+  .app { flex-direction: column; }
+  .btn.sm { min-height: 44px; }
+  .hide-m { display: none; }
+  .rail { display: none; }
+  .table { min-width: 0; font-size: var(--text-xs); }
+  .table th, .table td { padding: 8px 6px; }
+  .vno { font-size: 10px; padding: 1px 5px; letter-spacing: 0; }
+  .side { width: 100%; flex: 0 0 auto; flex-direction: column; padding: var(--space-3) var(--space-4); border-right: 0; border-bottom: 1px solid var(--red); position: sticky; top: 0; z-index: 20; }
+  .brand { display: flex; align-items: center; gap: var(--space-3); border-bottom: none; padding-bottom: var(--space-2); }
+  .brand b { font-size: 1.05rem; margin-top: 0; }
+  .brand-mark { display: none; }
+  .nav { display: flex; gap: var(--space-2); overflow-x: auto; margin-top: var(--space-2); padding-bottom: 2px; -webkit-overflow-scrolling: touch; }
+  .nav-h { display: none; }
+  .nav-item { white-space: nowrap; padding: 8px 12px; border-left: none; border-bottom: 2px solid transparent; border-radius: 0; }
+  .nav-item.active { border-left: none; border-bottom-color: var(--red); background: transparent; }
+  .side-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); border-top: none; padding-top: 0; }
+  .who { font-size: var(--text-xs); }
+  .logout { margin-top: 0; padding: 6px 12px; font-size: var(--text-xs); }
+  .page-head { flex-direction: column; align-items: flex-start; }
+  .quick-grid { grid-template-columns: 1fr; }
+}
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}

@@ -1,0 +1,24 @@
+# Credentials — real admin username/password live only on the host
+.env
+.env.local
+.env.*.local
+
+# Family ledger data. Created at runtime under private_data/; never publish it.
+private_data/*.db
+private_data/*.db-wal
+private_data/*.db-shm
+private_data/*.sqlite
+private_data/*.sqlite-wal
+private_data/*.sqlite-shm
+
+# Local editor / agent state (machine paths, review captures). Not part of the app.
+.codex/
+.cursor/
+.gemini/
+.impeccable/
+
+# OS noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.log

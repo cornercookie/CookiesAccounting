@@ -1,12 +1,12 @@
 <?php
 // 全家人記帳系統 — 新架構設定（多使用者 + 管理員 + 共同帳本）
-// 請先建立 .env 並設定 ADMIN_USERNAME 與 ADMIN_PASSWORD，再部署至 Hostinger。
+// 請先建立 .env 並設定 ADMIN_USERNAME 與 ADMIN_PASSWORD，再部署至 cPanel 主機。
 
 declare(strict_types=1);
 
 /* ----------------------------------------------------------------
    1. 載入 .env（純 PHP，不依賴 Composer）
-      Hostinger 共享主機可將 ADMIN_* 設為環境變數，或放置 .env 於專案根目錄
+      cPanel 主機可將 ADMIN_* 設為環境變數，或放置 .env 於專案根目錄
    ----------------------------------------------------------------- */
 $envFile = __DIR__ . '/.env';
 $envFromFile = [];

@@ -16,12 +16,12 @@ web
 
 ## Positioning
 
-不追求記帳 App 的完整功能，而是把「全家共同記帳 + 權限分級 + 手機隨手記」做到極簡可靠：多帳本、多成員權限（owner / member / viewer），金額精確到分，資料完全自架於 Hostinger 共享主機，不依賴第三方服務。
+不追求記帳 App 的完整功能，而是把「全家共同記帳 + 權限分級 + 手機隨手記」做到極簡可靠：多帳本、多成員權限（owner / member / viewer），金額精確到分，資料完全自架於 cPanel 主機，不依賴第三方服務。
 
 ## Operating Context
 
 - 台灣家庭，介面語言為繁體中文（zh-TW），時間帶 Asia/Taipei。
-- 部署於 Hostinger 共享主機（public_html 子目錄），PHP 8.1+，pdo_sqlite 擴充。
+- 部署於 cPanel 主機（public_html 子目錄），PHP 8.1+，pdo_sqlite 擴充。
 - 使用者透過手機或桌機瀏覽器存取；常見流程：登入 → 帳本列表 → 帳本詳情（本月收支彙總 + 最近 50 筆）→ 新增記錄。
 - 管理員另有後台：使用者管理（建立/重設密碼/角色/刪除）、帳本管理（建立帳本、授權存取）。
 
@@ -39,7 +39,7 @@ web
 ## Evidence on Hand
 
 - 真實文案與資料僅存在於程式碼中（表單標籤、錯誤訊息、表格欄位）；無使用者見證、無行銷素材、無品牌圖像。未來工作不得杜撰見證或數據。
-- 部署目標 Hostinger 的約束詳見 `FINAL_NOTES.md`；舊版 `NOTES.md` 已被 `FINAL_NOTES.md` 取代。
+- cPanel 部署約束詳見 `FINAL_NOTES.md`；舊版 `NOTES.md` 已被 `FINAL_NOTES.md` 取代。
 
 ## Product Principles
 

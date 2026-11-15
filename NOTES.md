@@ -17,17 +17,17 @@
 | 11 | `overview.php` 與 `list.php` 底部有備份註記 | 單句備註已加入兩頁，經 `h()` 轉義 |
 | 12 | 專案硬性約束皆維持 | PDO + prepared statements 只；`PRAGMA journal_mode=WAL` + `busy_timeout=5000` (`db.php`)；金額存 INT 分（不含 FLOAT）；家庭密碼在 `config.php`；session 登入；`./` 相對路徑；DB 於 `private_data/cookies_xxxx.db` |
 
-## 2. Hostinger 部署步驟
+## 2. cPanel 部署步驟
 
 1. **打包上傳**：將專案資料夾內全部檔案（含 `delete.php`、`NOTES.md`、`private_data/`、`assets/`、`.htaccess`）壓縮成 ZIP。
-2. **上傳並解壓**：在 Hostinger hPanel → 檔案管理員中，進入 `public_html/`，上傳 ZIP 到 `public_html/CookiesAccounting/` 並解壓；或直接上傳到 `public_html/CookiesAccounting/` 子目錄。
+2. **上傳並解壓**：在 cPanel → 檔案管理員中，進入 `public_html/`，上傳 ZIP 到 `public_html/CookiesAccounting/` 並解壓；或直接上傳到 `public_html/CookiesAccounting/` 子目錄。
 3. **確認檔案清單**：`config.php`, `db.php`, `functions.php`, `index.php`, `login.php`, `logout.php`, `overview.php`, `add.php`, `list.php`, `delete.php`, `.htaccess`, `private_data/.htaccess`, `assets/style.css`，以及既有資料庫 `private_data/cookies_xxxx.db`（遷移舊資料時攜上）。
-4. **PHP 版本**：hPanel → PHP 版本管理，選擇 **PHP 8.1+**。
+4. **PHP 版本**：cPanel → MultiPHP 管理員（或「選擇 PHP 版本」），選擇 **PHP 8.1+**。
 5. **擴充功能**：確認已啟用 **pdo_sqlite** 擴充（缺失時 `getPdo()` 會拋出 `RuntimeException`，頁面無法運作）。
 6. **寫入權限**：將 `private_data/` 設為可由網頁伺服器寫入（建議 `0770`/`0775`），以便 SQLite 寫入 `.db`、`.db-wal`、`.db-shm`；`private_data/.htaccess` 已經阻擋瀏覽器直接存取該目錄。
 7. **預設密碼**：部署前請修改 `config.php` 頂端的 `$FAMILY_PASSWORD`（預設 `ChangeMePlease`）。
 8. **驗證**：開啟 `https://你的網域/CookiesAccounting/`，應導向登入頁；登入後可進入總覽與記錄列表。
-9. **備份（下載）**：在 Hostinger 檔案管理員中，下載 `private_data/cookies_xxxx.db` 與 `private_data/cookies_xxxx.db-wal`（WAL 檔含尚未 checkpoint 的寫入；兩者合併才是完整備份）。資料庫閒置時 `-wal` 可能不存在或為空，該情況下 `.db` 單檔即可，有 `-wal` 時務必一起下載。
+9. **備份（下載）**：在 cPanel 檔案管理員中，下載 `private_data/cookies_xxxx.db` 與 `private_data/cookies_xxxx.db-wal`（WAL 檔含尚未 checkpoint 的寫入；兩者合併才是完整備份）。資料庫閒置時 `-wal` 可能不存在或為空，該情況下 `.db` 單檔即可，有 `-wal` 時務必一起下載。
 
 ## 3. 新增/變更檔案
 

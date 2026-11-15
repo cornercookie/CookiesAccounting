@@ -11,21 +11,21 @@
 | [ ] | 5 | 直接下載 `.db` 回傳 403 | `private_data/.htaccess` 以 `Require all denied`（Apache 2.2 相容 `Deny from all`）封鎖整個 `private_data/` 目錄，涵蓋 `cookies_xxxx.db`、`.db-wal`、`.db-shm`。 |
 | [ ] | 6 | 未登入者看不到任何內頁 | `index.php`、`ledgers.php`、`ledger.php`、`add_entry.php`、`delete_entry.php`、`dashboard.php`、`admin/*` 均在最開頭呼叫 `requireLogin()` / `requireAdmin()`，未登入一律導向 `./login.php`。 |
 | [ ] | 7 | 所有寫入表單皆有 CSRF | `add_entry.php`、`delete_entry.php`、`admin/users.php`（建立/重設密碼/變更角色/刪除使用者）、`admin/ledgers.php`（建立帳本/新增存取/移除存取）每張表單皆有隱藏 `csrf_token` 欄位；POST 時以 `checkCsrf()`（內部 `hash_equals()` 常數時間比較）驗證，失敗則拒絕。 |
-| [ ] | 8 | 手機新增記錄在 10 秒內完成 | `add_entry.php` 為純服務端輕量表單，無框架、無 Node.js、無大型前端庫，頁面極輕，在一般行動網路下可於 10 秒內載入與提交（實際耗時視 Hostinger 主機回應與網路狀況）。 |
-| [ ] | 9 | `pdo_sqlite` 缺失時顯示明確錯誤而非空白頁 | `db.php` `getPdo()` 在 `extension_loaded('pdo_sqlite')` 為 false 時拋出含中英文說明的 `RuntimeException`；PDO 亦設定 `ATTR_ERRMODE_EXCEPTION`，錯誤不會靜默。（註：若要在瀏覽器看到例外訊息，需在 Hostinger `php.ini` 開啟 `display_errors`，或檢查錯誤日誌。） |
+| [ ] | 8 | 手機新增記錄在 10 秒內完成 | `add_entry.php` 為純服務端輕量表單，無框架、無 Node.js、無大型前端庫，頁面極輕，在一般行動網路下可於 10 秒內載入與提交（實際耗時視 cPanel 主機回應與網路狀況）。 |
+| [ ] | 9 | `pdo_sqlite` 缺失時顯示明確錯誤而非空白頁 | `db.php` `getPdo()` 在 `extension_loaded('pdo_sqlite')` 為 false 時拋出含中英文說明的 `RuntimeException`；PDO 亦設定 `ATTR_ERRMODE_EXCEPTION`，錯誤不會靜默。（註：若要在瀏覽器看到例外訊息，需在 cPanel 的 MultiPHP INI Editor（或 `php.ini`）開啟 `display_errors`，或檢查錯誤日誌。） |
 
-## 2. Hostinger 部署步驟
+## 2. cPanel 部署步驟
 
 1. **ZIP 打包上傳**：將專案資料夾全部檔案壓縮成 ZIP（**不包含含真實密碼的 `.env`**；僅帶上 `.env.example`，部署後再於主機上建立 `.env`）。
-2. **上傳並解壓**：在 Hostinger hPanel → 檔案管理員中，進入 `public_html/`，上傳 ZIP 到 `public_html/CookiesAccounting/` 並解壓。
-3. **PHP 版本**：hPanel → PHP 版本管理，選擇 **PHP 8.1+**。
+2. **上傳並解壓**：在 cPanel → 檔案管理員中，進入 `public_html/`，上傳 ZIP 到 `public_html/CookiesAccounting/` 並解壓。
+3. **PHP 版本**：cPanel → MultiPHP 管理員（或「選擇 PHP 版本」），選擇 **PHP 8.1+**。
 4. **擴充功能**：確認已啟用 **pdo_sqlite** 擴充（缺失時 `getPdo()` 會拋出 `RuntimeException`，系統無法運作）。
 5. **寫入權限**：將 `private_data/` 設為網頁伺服器可寫入（建議 `0770` 或 `0775`），以便 SQLite 寫入 `.db`、`.db-wal`、`.db-shm`；`private_data/.htaccess` 已阻擋瀏覽器直接存取該目錄。
 6. **建立 `.env`**：複製 `.env.example` 為 `.env`，並將 `ADMIN_PASSWORD` 設為強密碼（必要時也可調整 `ADMIN_USERNAME`）。
 7. **驗證防護**：以瀏覽器直接訪問 `https://你的網域/CookiesAccounting/.env` 與 `https://你的網域/CookiesAccounting/private_data/`，應分別回傳 **403**。
 8. **驗證登入**：開啟 `https://你的網域/CookiesAccounting/`，應導向登入頁；以 `.env` 管理員帳密登入後應進入儀表板，且管理員能看到「後台：使用者管理」與「後台：帳本管理」連結。
 9. **驗證一般使用者隔離**：管理員於後台建立成員使用者與帳本，並授權存取後，該成員僅能看到被授權的帳本，看不到未授權帳本。
-10. **備份（下載）**：在 Hostinger 檔案管理員中，下載 `private_data/cookies_xxxx.db` 與 `private_data/cookies_xxxx.db-wal`（WAL 檔含尚未 checkpoint 的寫入；兩者合併才是完整備份，有 `-wal` 時務必一起下載；資料庫閒置時 `-wal` 可能不存在，該情況下 `.db` 單檔即可）。
+10. **備份（下載）**：在 cPanel 檔案管理員中，下載 `private_data/cookies_xxxx.db` 與 `private_data/cookies_xxxx.db-wal`（WAL 檔含尚未 checkpoint 的寫入；兩者合併才是完整備份，有 `-wal` 時務必一起下載；資料庫閒置時 `-wal` 可能不存在，該情況下 `.db` 單檔即可）。
 
 ## 3. 檔案清單 (File inventory)
 

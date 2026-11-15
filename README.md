@@ -1,6 +1,6 @@
 # 全家人記帳系統
 
-純 PHP + SQLite 的家庭共同帳本。多人、多帳本、分級權限（owner / member / viewer），金額以整數分儲存。部署目標是 Hostinger 共享主機（PHP 8.1+、`pdo_sqlite`），不依賴 Composer 或 Node.js。
+純 PHP + SQLite 的家庭共同帳本。多人、多帳本、分級權限（owner / member / viewer），金額以整數分儲存。部署目標是 cPanel 主機（PHP 8.1+、`pdo_sqlite`），不依賴 Composer 或 Node.js。
 
 ## 不會進這個 repo 的東西
 

@@ -24,16 +24,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $action = $_POST['action'] ?? '';
 
-    // ---------- 封存／還原帳本（僅管理員；資料永遠保留）----------
-    if (in_array($action, ['archive_ledger', 'restore_ledger'], true)) {
+    // ---------- 封存帳本（僅管理員；還原請至「已封存的帳本」頁面）----------
+    if (($action ?? '') === 'archive_ledger') {
         $ledgerId = filter_var($_POST['ledger_id'] ?? null, FILTER_VALIDATE_INT);
         if ($ledgerId === false || $ledgerId === null) {
             redirect('./ledgers.php?error=1&msg=' . urlencode('無效的帳本。'));
         }
-        $archived = ($action === 'archive_ledger') ? 1 : 0;
-        $stmt = $pdo->prepare('UPDATE ledgers SET archived = :archived WHERE id = :id');
-        $stmt->execute([':archived' => $archived, ':id' => $ledgerId]);
-        redirect('./ledgers.php?success=1&msg=' . urlencode(($archived === 1 ? '帳本已封存' : '帳本已還原') . '，記錄完整保留。'));
+        $stmt = $pdo->prepare('UPDATE ledgers SET archived = 1 WHERE id = :id');
+        $stmt->execute([':id' => $ledgerId]);
+        redirect('./ledgers.php?success=1&msg=' . urlencode('帳本已封存，記錄完整保留；可至「已封存的帳本」頁面還原。'));
     }
 
     // ---------- 建立帳本 ----------
@@ -171,12 +170,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ---------------- GET：讀取資料並顯示 ----------------
+// 主頁只列「未封存且擁有者帳號仍存在」的帳本；
+// 已封存的帳本 → archived_ledgers.php；擁有者已刪除的帳本 → orphaned_ledgers.php
 $ledgers = $pdo->query('
     SELECT l.id, l.name, l.owner_id, l.archived, l.created_at, u.username AS owner_username
     FROM ledgers l
-    LEFT JOIN users u ON u.id = l.owner_id
-    ORDER BY l.archived, l.id
+    INNER JOIN users u ON u.id = l.owner_id
+    WHERE l.archived = 0
+    ORDER BY l.id
 ')->fetchAll();
+
+// 兩個子頁的帳本數量（頁首入口連結用；件數為 0 時不顯示）
+$archivedCount = (int) $pdo->query('SELECT COUNT(*) FROM ledgers WHERE archived = 1')->fetchColumn();
+$orphanedCount = (int) $pdo->query('
+    SELECT COUNT(*)
+    FROM ledgers l
+    LEFT JOIN users u ON u.id = l.owner_id
+    WHERE u.id IS NULL
+')->fetchColumn();
 
 $allUsers = $pdo->query('SELECT id, username FROM users ORDER BY username')->fetchAll();
 
@@ -232,6 +243,14 @@ foreach ($ledgers as $ledger) {
                         <h1>共同帳本管理</h1>
                         <p class="sub">建立帳本、授權成員存取——只限管理員操作。</p>
                     </div>
+                    <span class="actions" style="min-width: 0; flex-direction: row;">
+                        <?php if ($archivedCount > 0): ?>
+                            <a href="./archived_ledgers.php" class="btn secondary sm">已封存的帳本（<?php echo h((string) $archivedCount); ?>）→</a>
+                        <?php endif; ?>
+                        <?php if ($orphanedCount > 0): ?>
+                            <a href="./orphaned_ledgers.php" class="btn secondary sm">擁有者已刪除的帳本（<?php echo h((string) $orphanedCount); ?>）→</a>
+                        <?php endif; ?>
+                    </span>
                 </div>
 
                 <?php if ($success): ?>
@@ -257,25 +276,22 @@ foreach ($ledgers as $ledger) {
                 <button type="submit" class="btn primary btn-block">建立帳本</button>
             </form>
 
-            <!-- 所有帳本與各帳本的存取管理 -->
-            <h3>所有共同帳本</h3>
+            <!-- 未封存且擁有者仍存在的帳本與各帳本的存取管理 -->
+            <h3>未封存的共同帳本</h3>
             <?php if ($ledgers): ?>
                 <?php foreach ($ledgers as $ledger): ?>
                     <div style="margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--line);">
                         <h3 style="margin: 0 0 var(--space-2) 0; font-size: var(--text-lg);">
                             帳本：<?php echo h($ledger['name']); ?>
                             （ID：<?php echo h((string) $ledger['id']); ?>，擁有者：<?php echo h($ledger['owner_username']); ?>，建立於：<?php echo h($ledger['created_at']); ?>）
-                            <?php if ((int) ($ledger['archived'] ?? 0) === 1): ?><span class="role-tag viewer">已封存</span><?php endif; ?>
                         </h3>
                         <p class="meta" style="display: flex; gap: var(--space-4); align-items: center; flex-wrap: wrap;">
-                            <?php if ((int) ($ledger['archived'] ?? 0) === 0): ?>
-                                <a href="../ledger.php?ledger_id=<?php echo h((string) $ledger['id']); ?>">進入帳本詳情</a>
-                            <?php endif; ?>
-                            <form method="POST" action="./ledgers.php" style="margin: 0;" onsubmit="return confirm('封存/還原此帳本？封存後從列表隱藏，記錄完整保留。');">
+                            <a href="../ledger.php?ledger_id=<?php echo h((string) $ledger['id']); ?>">進入帳本詳情</a>
+                            <form method="POST" action="./ledgers.php" style="margin: 0;" onsubmit="return confirm('封存此帳本？封存後移至「已封存的帳本」頁面，記錄完整保留。');">
                                 <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
-                                <input type="hidden" name="action" value="<?php echo (int) ($ledger['archived'] ?? 0) === 1 ? 'restore_ledger' : 'archive_ledger'; ?>">
+                                <input type="hidden" name="action" value="archive_ledger">
                                 <input type="hidden" name="ledger_id" value="<?php echo h((string) $ledger['id']); ?>">
-                                <button type="submit" class="btn sm secondary"><?php echo (int) ($ledger['archived'] ?? 0) === 1 ? '還原此帳本' : '封存此帳本'; ?></button>
+                                <button type="submit" class="btn sm secondary">封存此帳本</button>
                             </form>
                         </p>
 
@@ -360,11 +376,11 @@ foreach ($ledgers as $ledger) {
                     </div>
                 <?php endforeach; ?>
             <?php else: ?>
-                <p>目前沒有任何共同帳本。</p>
+                <p>目前沒有未封存的共同帳本。</p>
             <?php endif; ?>
 
             <p class="meta" style="border-top: 1px solid var(--line); padding-top: var(--space-4); margin-top: var(--space-6);">
-                規則：帳本擁有者的存取權限固定為 owner，不可變更亦不可移除；其他使用者可設為 owner / member / viewer。封存的帳本從列表隱藏、不能記帳或作廢記錄，記錄完整保留，可隨時還原。
+                規則：帳本擁有者的存取權限固定為 owner，不可變更亦不可移除；其他使用者可設為 owner / member / viewer。封存的帳本移至「已封存的帳本」頁面，不能記帳或作廢記錄，記錄完整保留，可隨時還原；擁有者帳號已刪除的帳本移至「擁有者已刪除的帳本」頁面，可重新指定擁有者。
             </p>
             </main>
         </div>

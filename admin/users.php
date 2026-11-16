@@ -160,7 +160,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->rollBack();
             redirect('./users.php?error=1&msg=' . urlencode('刪除失敗：' . $e->getMessage()));
         }
-        redirect('./users.php?success=1&msg=' . urlencode('使用者「' . $target['username'] . '」已刪除（其帳本存取權與記帳記錄已一併移除）。'));
+        redirect('./users.php?success=1&msg=' . urlencode('使用者「' . $target['username'] . '」已刪除。其帳本存取權與記帳記錄已一併移除；若該使用者名下帳本因此失去擁有者，請至帳本管理的「擁有者已刪除的帳本」頁面重新指定。'));
     }
 
     redirect('./users.php?error=1');

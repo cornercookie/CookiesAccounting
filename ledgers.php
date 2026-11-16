@@ -1,5 +1,5 @@
 <?php
-// 全家人記帳系統 — 帳本列表（Task 2）：列出目前使用者可存取的所有帳本
+// 全家人記帳系統 — 帳本列表：列出目前使用者可存取的未封存帳本；已封存的帳本見 archived_ledgers.php
 declare(strict_types=1);
 
 require_once __DIR__ . '/functions.php';
@@ -45,8 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('./ledger.php?ledger_id=' . $newLedgerId . '&success=1');
     }
 
-    // 封存／還原帳本：owner 可封存/還原创属自己的帳本；管理員可封存/還原任何帳本
-    if (in_array($_POST['action'] ?? '', ['archive_ledger', 'restore_ledger'], true)) {
+    // 封存帳本：owner 可封存自己的帳本；管理員可封存任何帳本（還原請至「已封存的帳本」頁面）
+    if (($_POST['action'] ?? '') === 'archive_ledger') {
         if (!checkCsrf($_POST['csrf_token'] ?? '')) {
             redirect('./ledgers.php?error=1&msg=' . urlencode('請求驗證失敗，請重新提交表單。'));
         }
@@ -66,13 +66,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $isAdmin = (($user['role'] ?? '') === 'admin');
         $canArchive = $isAdmin || ($row['my_role'] === 'owner');
         if (!$canArchive) {
-            redirect('./ledgers.php?error=1&msg=' . urlencode('只有帳本擁有者或管理員可以封存/還原帳本。'));
+            redirect('./ledgers.php?error=1&msg=' . urlencode('只有帳本擁有者或管理員可以封存帳本。'));
         }
 
-        $archived = (($_POST['action'] ?? '') === 'archive_ledger') ? 1 : 0;
+        $archived = 1;
         $stmt = $pdo->prepare('UPDATE ledgers SET archived = :archived WHERE id = :id');
         $stmt->execute([':archived' => $archived, ':id' => $ledgerId]);
-        redirect('./ledgers.php?success=1&msg=' . urlencode(($archived === 1 ? '帳本已封存' : '帳本已還原') . '，記錄完整保留。'));
+        redirect('./ledgers.php?success=1&msg=' . urlencode('帳本已封存，記錄完整保留；可至「已封存的帳本」頁面還原。'));
     }
     redirect('./ledgers.php?error=1');
 }
@@ -99,17 +99,15 @@ $stmt = $pdo->prepare('
 $stmt->execute([':user_id' => $userId]);
 $ledgers = $stmt->fetchAll();
 
-// 我封存的帳本（還原用）：我是 owner 的已封存帳本
+// 目前使用者可存取的已封存帳本數量（用於「已封存的帳本」入口連結；owner / member / viewer 皆計入）
 $stmt = $pdo->prepare('
-    SELECT l.id, l.name,
-        (SELECT COUNT(*) FROM entries e WHERE e.ledger_id = l.id AND e.deleted = 0) AS entry_count
+    SELECT COUNT(*) AS archived_count
     FROM ledgers l
     INNER JOIN ledger_access la ON la.ledger_id = l.id AND la.user_id = :user_id
-    WHERE l.archived = 1 AND la.role = \'owner\'
-    ORDER BY l.name
+    WHERE l.archived = 1
 ');
 $stmt->execute([':user_id' => $userId]);
-$archivedMine = $stmt->fetchAll();
+$archivedCount = (int) ($stmt->fetch()['archived_count'] ?? 0);
 ?>
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -151,6 +149,9 @@ $archivedMine = $stmt->fetchAll();
                         <h1>帳本列表</h1>
                         <p class="sub">您可存取的共同帳本，點進去看本月收支與記錄。</p>
                     </div>
+                    <?php if ($archivedCount > 0): ?>
+                        <a href="./archived_ledgers.php" class="btn secondary sm">已封存的帳本（<?php echo h((string) $archivedCount); ?>）→</a>
+                    <?php endif; ?>
                 </div>
 
                 <?php if ($success): ?>
@@ -167,7 +168,7 @@ $archivedMine = $stmt->fetchAll();
                         <span class="filter-label">新增我的帳本</span>
                         <input type="text" name="name" class="input filter-input" required maxlength="100" placeholder="例如 旅遊基金、孝親金" style="width: 100%; min-width: 0;">
                     </label>
-                    <button type="submit" class="btn primary sm">建立</button>
+                    <button type="submit" class="btn primary sm">建立帳本</button>
                 </form>
 
                 <?php if ($ledgers): ?>
@@ -212,37 +213,6 @@ $archivedMine = $stmt->fetchAll();
                     <p class="empty">您目前沒有可存取的帳本。在上方建立一本自己的，或洽管理員授權。</p>
                 <?php endif; ?>
 
-                <?php if ($archivedMine): ?>
-                    <h3>已封存的帳本（<?php echo h((string) count($archivedMine)); ?>）</h3>
-                    <p class="meta">封存的帳本從列表隱藏、不能記帳或作廢記錄，資料完整保留，可隨時還原。</p>
-                    <div class="table-wrap">
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>帳本名稱</th>
-                                    <th class="num hide-m">記錄數（未刪除）</th>
-                                    <th class="ctr">還原</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($archivedMine as $ledger): ?>
-                                    <tr>
-                                        <td><strong><?php echo h($ledger['name']); ?></strong></td>
-                                        <td class="num hide-m"><?php echo h((string) $ledger['entry_count']); ?></td>
-                                        <td class="ctr">
-                                            <form method="POST" action="./ledgers.php">
-                                                <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
-                                                <input type="hidden" name="action" value="restore_ledger">
-                                                <input type="hidden" name="ledger_id" value="<?php echo h((string) $ledger['id']); ?>">
-                                                <button type="submit" class="btn sm secondary">還原</button>
-                                            </form>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                <?php endif; ?>
             </main>
         </div>
     </div>

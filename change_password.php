@@ -38,6 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $hash = password_hash($new, PASSWORD_DEFAULT);
                 $stmt = $pdo->prepare('UPDATE users SET password_hash = :hash WHERE id = :id');
                 $stmt->execute([':hash' => $hash, ':id' => $myId]);
+                logAudit('password_change');
                 $success = true;
             }
         }
@@ -69,6 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <p class="nav-h">後台</p>
                     <a class="nav-item" href="./admin/users.php">使用者管理</a>
                     <a class="nav-item" href="./admin/ledgers.php">帳本管理</a>
+                    <a class="nav-item" href="./admin/audit_log.php">操作紀錄</a>
                 <?php endif; ?>
             </nav>
             <div class="side-foot">

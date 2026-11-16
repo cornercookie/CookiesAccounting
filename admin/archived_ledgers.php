@@ -27,6 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $stmt = $pdo->prepare('UPDATE ledgers SET archived = 0 WHERE id = :id');
         $stmt->execute([':id' => $ledgerId]);
+        logAudit('ledger_restore', 'ledger_id=' . $ledgerId);
         redirect('./archived_ledgers.php?success=1&msg=' . urlencode('帳本已還原，回到帳本管理主頁，記錄完整保留。'));
     }
     redirect('./archived_ledgers.php?error=1');
@@ -73,6 +74,7 @@ $archivedLedgers = $stmt->fetchAll();
                 <p class="nav-h">後台</p>
                 <a class="nav-item" href="./users.php">使用者管理</a>
                 <a class="nav-item active" href="./ledgers.php">帳本管理</a>
+                <a class="nav-item" href="./audit_log.php">操作紀錄</a>
             </nav>
             <div class="side-foot">
                 <div class="who"><b><?php echo h($user['username']); ?></b><span class="role-chip"><?php echo h($user['role']); ?></span></div>

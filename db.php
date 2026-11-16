@@ -13,7 +13,7 @@ require_once __DIR__ . '/config.php';
  * - PDO::ATTR_EMULATE_PREPARES=false -> 真正的預備陳述式
  * - PRAGMA journal_mode=WAL         -> 並存讀寫
  * - PRAGMA busy_timeout=5000        -> 鎖定時等候而非失敗
- * - 自動建立 users / ledgers / ledger_access / entries 五張表（含 login_attempts）
+ * - 自動建立 users / ledgers / ledger_access / entries / audit_log 等表（含 login_attempts）
  * - 從 .env 建立種子管理員帳號（users 表尚不存在時）
  *
  * @throws RuntimeException 缺少 pdo_sqlite 擴充時拋出
@@ -105,6 +105,16 @@ function ensureSchema(PDO $pdo): void
         locked_until TEXT,
         updated_at   TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
     );
+
+    CREATE TABLE IF NOT EXISTS audit_log (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id    INTEGER,               -- 未登入/未知使用者時為 NULL
+        username   TEXT    NOT NULL DEFAULT '',
+        action     TEXT    NOT NULL,      -- 例：login / entry_create / admin_user_delete
+        detail     TEXT    NOT NULL DEFAULT '',
+        ip         TEXT    NOT NULL DEFAULT '',
+        created_at TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+    );
 SQL);
 
     $pdo->exec(<<<'SQL'
@@ -115,6 +125,9 @@ SQL);
     CREATE INDEX IF NOT EXISTS idx_entries_user_id               ON entries(user_id);
     CREATE INDEX IF NOT EXISTS idx_entries_entry_date_deleted    ON entries(entry_date, deleted);
     CREATE INDEX IF NOT EXISTS idx_entries_type                  ON entries(type);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_created_at          ON audit_log(created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_user_id             ON audit_log(user_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_action              ON audit_log(action);
 SQL);
 
     // 舊版資料庫 migration：ledgers 補 archived 欄位（封存/還原帳本用）

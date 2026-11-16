@@ -64,8 +64,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->commit();
         } catch (Throwable $e) {
             $pdo->rollBack();
+            logError('admin_ledger_reassign_owner failed (ledger_id=' . $ledgerId . ', new_owner_id=' . $newOwnerId . '): ' . $e->getMessage());
             redirect('./orphaned_ledgers.php?error=1&msg=' . urlencode('重新指定失敗：' . $e->getMessage()));
         }
+        logAudit('admin_ledger_reassign_owner', 'ledger_id=' . $ledgerId . ' new_owner_id=' . $newOwnerId);
         redirect('./orphaned_ledgers.php?success=1&msg=' . urlencode('已重新指定擁有者，新擁有者已取得 owner 權限。'));
     }
     redirect('./orphaned_ledgers.php?error=1');
@@ -113,6 +115,7 @@ $allUsers = $pdo->query('SELECT id, username FROM users ORDER BY username')->fet
                 <p class="nav-h">後台</p>
                 <a class="nav-item" href="./users.php">使用者管理</a>
                 <a class="nav-item active" href="./ledgers.php">帳本管理</a>
+                <a class="nav-item" href="./audit_log.php">操作紀錄</a>
             </nav>
             <div class="side-foot">
                 <div class="who"><b><?php echo h($user['username']); ?></b><span class="role-chip"><?php echo h($user['role']); ?></span></div>

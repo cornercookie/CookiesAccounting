@@ -32,6 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $stmt = $pdo->prepare('UPDATE ledgers SET archived = 1 WHERE id = :id');
         $stmt->execute([':id' => $ledgerId]);
+        logAudit('admin_ledger_archive', 'ledger_id=' . $ledgerId);
         redirect('./ledgers.php?success=1&msg=' . urlencode('帳本已封存，記錄完整保留；可至「已封存的帳本」頁面還原。'));
     }
 
@@ -76,8 +77,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->commit();
         } catch (Throwable $e) {
             $pdo->rollBack();
+            logError('admin_ledger_create failed (name=' . $name . '): ' . $e->getMessage());
             redirect('./ledgers.php?error=1&msg=' . urlencode('建立失敗：' . $e->getMessage()));
         }
+        logAudit('admin_ledger_create', 'ledger_id=' . $ledgerId . ' name=' . $name . ' owner_id=' . $ownerId);
         redirect('./ledgers.php?success=1&msg=' . urlencode('帳本「' . $name . '」已建立。'));
     }
 
@@ -135,6 +138,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ':role'      => $role,
             ]);
         }
+        logAudit('admin_ledger_access_set', 'ledger_id=' . $ledgerId . ' user_id=' . $userId . ' role=' . $role . ($exists ? ' (更新)' : ' (新增)'));
         redirect('./ledgers.php?success=1&msg=' . urlencode('存取權限已更新。'));
     }
 
@@ -163,6 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'DELETE FROM ledger_access WHERE ledger_id = :ledger_id AND user_id = :user_id'
         );
         $stmt->execute([':ledger_id' => $ledgerId, ':user_id' => $userId]);
+        logAudit('admin_ledger_access_remove', 'ledger_id=' . $ledgerId . ' user_id=' . $userId);
         redirect('./ledgers.php?success=1&msg=' . urlencode('存取權限已移除。'));
     }
 
@@ -229,6 +234,7 @@ foreach ($ledgers as $ledger) {
                 <p class="nav-h">後台</p>
                 <a class="nav-item" href="./users.php">使用者管理</a>
                 <a class="nav-item active" href="./ledgers.php">帳本管理</a>
+                <a class="nav-item" href="./audit_log.php">操作紀錄</a>
             </nav>
             <div class="side-foot">
                 <div class="who"><b><?php echo h($user['username']); ?></b><span class="role-chip"><?php echo h($user['role']); ?></span></div>

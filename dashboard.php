@@ -69,6 +69,7 @@ $ledgerSummaries = $stmt->fetchAll();
                     <p class="nav-h">後台</p>
                     <a class="nav-item" href="./admin/users.php">使用者管理</a>
                     <a class="nav-item" href="./admin/ledgers.php">帳本管理</a>
+                    <a class="nav-item" href="./admin/audit_log.php">操作紀錄</a>
                 <?php endif; ?>
             </nav>
             <div class="side-foot">
@@ -160,6 +161,10 @@ $ledgerSummaries = $stmt->fetchAll();
                         <a class="quick" href="./admin/ledgers.php">
                             <b>帳本管理 →</b>
                             <span>建立共同帳本、授權成員存取。</span>
+                        </a>
+                        <a class="quick" href="./admin/audit_log.php">
+                            <b>操作紀錄 →</b>
+                            <span>登入、記帳與後台操作的審計紀錄。</span>
                         </a>
                     <?php else: ?>
                         <a class="quick" href="./ledgers.php">

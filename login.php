@@ -23,6 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (isLoginLocked($identifier)) {
             // 鎖定期間內不進行密碼比對，避免暴露是否鎖定的差別資訊
+            logAudit('login_locked', 'identifier: ' . $identifier, null, $username);
             $error = '帳號已鎖定，請稍後再試';
         } else {
             $pdo = getPdo();
@@ -45,10 +46,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['authed']    = true;
                 $_SESSION['authed_at'] = time();
                 $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+                logAudit('login', '', (int) $user['id'], (string) $user['username']);
                 redirect('./dashboard.php');
             }
 
             recordLoginFailure($identifier);
+            logAudit('login_failed', 'identifier: ' . $identifier, null, $username);
             $error = '帳號或密碼錯誤';
         }
     }

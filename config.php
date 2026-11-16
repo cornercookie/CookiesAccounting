@@ -57,6 +57,46 @@ define('ADMIN_PASSWORD', env('ADMIN_PASSWORD'));
 define('DB_PATH', __DIR__ . '/private_data/cookies_xxxx.db');
 
 /* ----------------------------------------------------------------
+   3.5 錯誤記錄（PHP errors / warnings + 未捕捉例外 → private_data/error.log）
+
+   - private_data/ 已被私密 .htaccess 封鎖，error.log 不會被瀏覽器下載
+   - *.log 已被 .gitignore 忽略，不會進入版控
+   - display_errors 關閉：錯誤細節（路徑、SQL、堆疊）不會洩漏給使用者，
+     一律改寫到 error.log；畫面只顯示通用訊息（見下方例外處理器）
+   ----------------------------------------------------------------- */
+define('ERROR_LOG_PATH', dirname(DB_PATH) . '/error.log');
+// 防禦：private_data 尚不存在時先建立（與 getPdo() 的 0770 一致），
+// 否則 error.log 會因目錄不存在而靜默寫不到
+if (!is_dir(dirname(ERROR_LOG_PATH))) {
+    @mkdir(dirname(ERROR_LOG_PATH), 0770, true);
+}
+ini_set('log_errors', '1');
+ini_set('error_log', ERROR_LOG_PATH);
+ini_set('display_errors', '0');
+
+set_exception_handler(function (Throwable $e): void {
+    // 完整細節只進 error.log，不外洩給瀏覽器
+    error_log(sprintf(
+        "Uncaught %s: %s in %s:%d\n%s",
+        get_class($e),
+        $e->getMessage(),
+        $e->getFile(),
+        $e->getLine(),
+        $e->getTraceAsString()
+    ));
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: text/html; charset=utf-8');
+    }
+    echo '<!DOCTYPE html><html lang="zh-TW"><head><meta charset="UTF-8">'
+        . '<title>系統錯誤 - 全家人記帳系統</title></head><body>'
+        . '<h1>系統發生錯誤</h1>'
+        . '<p>很抱歉，系統暫時無法處理您的請求。此錯誤已記錄於伺服器日誌，請稍後再試；若持續發生，請聯絡管理員。</p>'
+        . '</body></html>';
+    exit;
+});
+
+/* ----------------------------------------------------------------
    4. 時區
    ----------------------------------------------------------------- */
 date_default_timezone_set('Asia/Taipei');

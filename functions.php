@@ -186,6 +186,55 @@ function recordLoginFailure(string $identifier): void
 }
 
 /**
+ * 寫入錯誤日誌（private_data/error.log）。
+ * 用於需要明確記錄的錯誤點；PHP 層級的 errors/warnings 由 config.php 的
+ * ini_set('error_log', ...) 自動導向同一個檔案。
+ */
+function logError(string $message): void
+{
+    error_log('[' . (new DateTime('now'))->format('Y-m-d H:i:s') . '] ' . $message);
+}
+
+/**
+ * 寫入操作審計紀錄（audit_log 表）。
+ *
+ * - $userId / $username 未指定時，自動從目前 session 取得（未登入則記 NULL / 空字串）
+ * - 僅供追蹤「誰做了什麼」，不記錄密碼、金鑰等機敏內容
+ * - 任何失敗都不得影響主流程：失敗時改寫 error.log 並繼續執行
+ */
+function logAudit(string $action, string $detail = '', ?int $userId = null, ?string $username = null): void
+{
+    try {
+        if ($userId === null && !empty($_SESSION['user_id'])) {
+            $userId = (int) $_SESSION['user_id'];
+        }
+        if ($username === null) {
+            $username = (string) ($_SESSION['username'] ?? '');
+        }
+        // 截斷使用者可控的欄位，避免異常輸入灌爆 audit_log
+        $truncate = static fn(string $s, int $max): string => function_exists('mb_substr') ? mb_substr($s, 0, $max) : substr($s, 0, $max);
+        $username = $truncate($username, 64);
+        $detail   = $truncate($detail, 255);
+
+        $pdo  = getPdo();
+        $stmt = $pdo->prepare(
+            'INSERT INTO audit_log (user_id, username, action, detail, ip)
+             VALUES (:user_id, :username, :action, :detail, :ip)'
+        );
+        $stmt->execute([
+            ':user_id'  => $userId,
+            ':username' => $username,
+            ':action'   => $action,
+            ':detail'   => $detail,
+            ':ip'       => (string) ($_SERVER['REMOTE_ADDR'] ?? ''),
+        ]);
+    } catch (Throwable $e) {
+        // 審計失敗不可中斷主流程，改寫 error.log 即可
+        logError('audit log failed (action=' . $action . '): ' . $e->getMessage());
+    }
+}
+
+/**
  * 登入成功後清除指定識別碼的失敗紀錄與鎖定狀態。
  */
 function clearLoginAttempts(string $identifier): void

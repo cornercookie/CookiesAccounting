@@ -10,6 +10,11 @@
 
 `private_data/.htaccess` 會一併封鎖瀏覽器直接下載資料庫，請保留。
 
+## 日誌
+
+- **錯誤 Log**：PHP 錯誤與未捕捉例外寫入 `private_data/error.log`（僅主機可讀，`display_errors` 已關閉，瀏覽器只會看到通用錯誤頁）。無自動輪替，請定期備份後手動清理。
+- **操作審計 Log**：登入／登出、新增／作廢記錄、密碼變更與所有後台管理操作寫入 `audit_log` 資料表；管理員可在「操作紀錄」頁（`admin/audit_log.php`）檢視，唯讀、不可從網頁刪除。詳細見 `TASK5_NOTES.md`。
+
 ## 部署
 
 1. 上傳程式碼到 `public_html/CookiesAccounting/`（不要上傳 `.env` 或既有 `.db`）。

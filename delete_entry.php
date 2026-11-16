@@ -74,5 +74,8 @@ $stmt = $pdo->prepare('
 ');
 $stmt->execute([':id' => $id, ':ledger_id' => $ledgerId]);
 $deleted = $stmt->rowCount() > 0;
+if ($deleted) {
+    logAudit('entry_delete', 'entry #' . $id . ' · ledger ' . $ledgerId);
+}
 
 redirect('./ledger.php?ledger_id=' . $ledgerId . '&' . ($deleted ? 'success=1' : 'error=1'));

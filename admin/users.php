@@ -59,6 +59,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ':hash'     => $hash,
             ':role'     => $role,
         ]);
+        $newUserId = (int) $pdo->lastInsertId();
+        logAudit('admin_user_create', 'user_id=' . $newUserId . ' username=' . $username . ' role=' . $role);
         redirect('./users.php?success=1&msg=' . urlencode('使用者「' . $username . '」已建立。'));
     }
 
@@ -74,15 +76,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect('./users.php?error=1&msg=' . urlencode('新密碼長度至少需 6 個字元。'));
         }
 
-        $stmt = $pdo->prepare('SELECT id FROM users WHERE id = :id LIMIT 1');
+        $stmt = $pdo->prepare('SELECT id, username FROM users WHERE id = :id LIMIT 1');
         $stmt->execute([':id' => $targetId]);
-        if ($stmt->fetch() === false) {
+        $target = $stmt->fetch();
+        if ($target === false) {
             redirect('./users.php?error=1&msg=' . urlencode('指定的使用者不存在。'));
         }
 
         $hash = password_hash($password, PASSWORD_DEFAULT);
         $stmt = $pdo->prepare('UPDATE users SET password_hash = :hash WHERE id = :id');
         $stmt->execute([':hash' => $hash, ':id' => $targetId]);
+        logAudit('admin_user_reset_password', 'target_user_id=' . $targetId . ' username=' . (string) $target['username']);
         redirect('./users.php?success=1&msg=' . urlencode('該使用者的密碼已重設。'));
     }
 
@@ -98,7 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect('./users.php?error=1&msg=' . urlencode('不可變更您自己的角色。'));
         }
 
-        $stmt = $pdo->prepare('SELECT id, role FROM users WHERE id = :id LIMIT 1');
+        $stmt = $pdo->prepare('SELECT id, role, username FROM users WHERE id = :id LIMIT 1');
         $stmt->execute([':id' => $targetId]);
         $target = $stmt->fetch();
         if ($target === false) {
@@ -117,6 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $stmt = $pdo->prepare('UPDATE users SET role = :role WHERE id = :id');
         $stmt->execute([':role' => $role, ':id' => $targetId]);
+        logAudit('admin_user_change_role', 'target_user_id=' . $targetId . ' username=' . (string) $target['username'] . ' ' . $target['role'] . '→' . $role);
         redirect('./users.php?success=1&msg=' . urlencode('角色已更新。'));
     }
 
@@ -158,8 +163,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->commit();
         } catch (Throwable $e) {
             $pdo->rollBack();
+            logError('admin_user_delete failed for user_id=' . $targetId . ': ' . $e->getMessage());
             redirect('./users.php?error=1&msg=' . urlencode('刪除失敗：' . $e->getMessage()));
         }
+        logAudit('admin_user_delete', 'target_user_id=' . $targetId . ' username=' . (string) $target['username']);
         redirect('./users.php?success=1&msg=' . urlencode('使用者「' . $target['username'] . '」已刪除。其帳本存取權與記帳記錄已一併移除；若該使用者名下帳本因此失去擁有者，請至帳本管理的「擁有者已刪除的帳本」頁面重新指定。'));
     }
 
@@ -193,6 +200,7 @@ $users = $pdo->query('SELECT id, username, role, created_at FROM users ORDER BY 
                 <p class="nav-h">後台</p>
                 <a class="nav-item active" href="./users.php">使用者管理</a>
                 <a class="nav-item" href="./ledgers.php">帳本管理</a>
+                <a class="nav-item" href="./audit_log.php">操作紀錄</a>
             </nav>
             <div class="side-foot">
                 <div class="who"><b><?php echo h($user['username']); ?></b><span class="role-chip"><?php echo h($user['role']); ?></span></div>

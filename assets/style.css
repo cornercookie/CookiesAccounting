@@ -22,6 +22,8 @@
   --blue:       #1f4e79;
   --blue-deep:  #163a5b;
   --blue-tint:  #e3ebf3;
+  --amber:      #8a6d1a;
+  --amber-tint: #f3ead0;
   --focus:      #1f4e79;
   --radius:     3px;
   --shadow:     0 1px 2px rgba(35, 39, 43, 0.12), 0 4px 14px rgba(35, 39, 43, 0.07);
@@ -322,4 +324,105 @@ a:hover { text-decoration: underline; }
 /* ---------- Reduced motion ---------- */
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
+}
+
+/* ---------- Budget alerts（預算紅線與超支提醒） ---------- */
+.budget-box { border: 1px solid var(--line); border-left: 5px solid var(--blue); border-radius: var(--radius); background: var(--paper-2); padding: var(--space-3) var(--space-4); margin-bottom: var(--space-4); }
+.budget-box.budget-ok    { border-left-color: var(--blue); }
+.budget-box.budget-warn  { border-left-color: var(--amber); background: var(--amber-tint); }
+.budget-box.budget-danger{ border-left-color: var(--red); background: var(--red-tint); }
+
+.budget-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-2); }
+.budget-title { font-weight: 700; font-size: var(--text-sm); color: var(--ink); }
+
+.budget-chip { display: inline-block; font-family: var(--font-mono); font-size: 11px; border-radius: 2px; padding: 2px 8px; letter-spacing: 0.08em; border: 1px solid var(--line); background: var(--paper-3); color: var(--ink-2); }
+.budget-chip.ok     { border-color: var(--blue); color: var(--blue); background: var(--blue-tint); }
+.budget-chip.warn   { border-color: var(--amber); color: var(--amber); background: var(--amber-tint); }
+.budget-chip.danger { border-color: var(--red); color: var(--red); background: var(--red-tint); }
+
+.budget-bar { height: 14px; background: var(--paper-3); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.budget-fill { display: block; height: 100%; background: var(--blue); transition: width 0.3s ease; }
+.budget-warn .budget-fill   { background: var(--amber); }
+.budget-danger .budget-fill { background: var(--red); }
+
+.budget-meta { margin: var(--space-2) 0 0; font-size: var(--text-sm); color: var(--ink-2); }
+.budget-meta strong { color: var(--ink); }
+
+.budget-form { margin-top: var(--space-3); border-top: 1px dashed var(--line); padding-top: var(--space-3); }
+.budget-form-label { display: block; font-size: var(--text-xs); color: var(--side-dim); margin-bottom: var(--space-2); }
+.budget-form-row { display: flex; gap: var(--space-2); }
+.budget-form-input { flex: 1; min-width: 0; background: var(--side-2); border: 1px solid var(--line-dark); color: var(--side-ink); font-size: var(--text-sm); padding: 8px 10px; border-radius: var(--radius); }
+.budget-form-input::placeholder { color: var(--side-dim); opacity: 1; }
+.budget-form .btn { flex: 0 0 auto; background: var(--side-ink); color: var(--ink); border-color: var(--side-dim); }
+.budget-form .btn:hover { background: #ffffff; }
+.budget-form .btn:active { background: var(--paper-3); }
+
+/* 手機版：側欄預算表單隨 .rail 隱藏，預算盒維持可讀 */
+@media (max-width: 720px) {
+  .budget-box { padding: var(--space-3); }
+}
+
+/* ---------- Receipt thumbnail（收據小圖） ---------- */
+.receipt-thumb {
+  display: inline-block;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper-2);
+  padding: 2px;
+}
+
+.receipt-thumb img {
+  display: block;
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: var(--radius);
+}
+
+.receipt-thumb:hover {
+  border-color: var(--blue);
+  background: var(--paper-3);
+}
+
+table .receipt-col {
+  width: 64px;
+  text-align: center;
+}
+
+table .receipt-col .meta {
+  color: var(--ink-3);
+}
+
+.table td.ctr .ctr-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: center;
+  align-items: center;
+}
+
+/* ---------- AI 一句話記帳輔助區塊 ---------- */
+.ai-assist { border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper-2); margin-bottom: var(--space-4); }
+.ai-head { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); }
+.ai-toggle { width: 100%; text-align: left; background: none; border: none; font: inherit; color: var(--ink); font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: var(--space-2); }
+.ai-toggle:hover { color: var(--blue); }
+.ai-panel { padding: var(--space-3) var(--space-4); }
+.ai-hint { font-size: var(--text-sm); color: var(--ink-2); margin: 0 0 var(--space-3); }
+.ai-input-group { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
+.ai-textarea { flex: 1; min-width: 0; resize: vertical; font: inherit; padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper-2); color: var(--ink); }
+.ai-voice-btn { flex: 0 0 auto; padding: var(--space-2) var(--space-3); font-size: 1.25rem; background: var(--paper-3); border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; }
+.ai-voice-btn:hover { background: var(--line); }
+.ai-actions { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.ai-status { margin-left: var(--space-2); font-size: var(--text-xs); }
+.ai-status.ai-ok { color: var(--blue); }
+.ai-status.ai-warn { color: var(--amber); }
+.ai-status.ai-error { color: var(--red); }
+.ai-status.ai-listening { color: var(--ink-2); font-style: italic; }
+
+/* 手機版調整 */
+@media (max-width: 720px) {
+  .ai-input-group { flex-direction: column; }
+  .ai-voice-btn { width: 100%; text-align: left; }
+  .ai-actions { flex-direction: column; align-items: stretch; }
+  .ai-actions .btn { width: 100%; }
+  .ai-status { margin-left: 0; margin-top: var(--space-2); display: block; }
 }

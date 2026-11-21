@@ -75,6 +75,16 @@ $stmt = $pdo->prepare('
 $stmt->execute([':id' => $id, ':ledger_id' => $ledgerId]);
 $deleted = $stmt->rowCount() > 0;
 if ($deleted) {
+    // 清理關聯收據圖片（若有）
+    $stmt = $pdo->prepare('SELECT receipt_path FROM entries WHERE id = :id AND ledger_id = :ledger_id LIMIT 1');
+    $stmt->execute([':id' => $id, ':ledger_id' => $ledgerId]);
+    $row = $stmt->fetch();
+    if ($row !== false && !empty($row['receipt_path'])) {
+        $fullPath = __DIR__ . '/' . $row['receipt_path'];
+        if (is_file($fullPath)) {
+            @unlink($fullPath);
+        }
+    }
     logAudit('entry_delete', 'entry #' . $id . ' · ledger ' . $ledgerId);
 }
 

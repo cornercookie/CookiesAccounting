@@ -69,6 +69,7 @@ function ensureSchema(PDO $pdo): void
         name        TEXT    NOT NULL,
         owner_id    INTEGER NOT NULL,
         archived    INTEGER NOT NULL DEFAULT 0,
+        monthly_budget_cents INTEGER NOT NULL DEFAULT 0, -- 每月預算（整數分，0 = 未設定）
         created_at  TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
         FOREIGN KEY (owner_id) REFERENCES users(id)
     );
@@ -93,6 +94,7 @@ function ensureSchema(PDO $pdo): void
         category      TEXT    NOT NULL DEFAULT '',
         entry_date    TEXT    NOT NULL,
         note          TEXT    NOT NULL DEFAULT '',
+        receipt_path  TEXT    NOT NULL DEFAULT '', -- 收據圖片私密路徑（例如 private_data/uploads/<random>.jpg）
         deleted       INTEGER NOT NULL DEFAULT 0,
         created_at    TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
         FOREIGN KEY (ledger_id) REFERENCES ledgers(id),
@@ -141,6 +143,31 @@ SQL);
     }
     if (!$hasArchived) {
         $pdo->exec('ALTER TABLE ledgers ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
+    }
+
+    // 舊版資料庫 migration：entries 補 receipt_path 欄位（收據圖片路徑）
+    $hasReceipt = false;
+    $entriesCols = $pdo->query('PRAGMA table_info(entries)')->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($entriesCols as $col) {
+        if (($col['name'] ?? '') === 'receipt_path') {
+            $hasReceipt = true;
+            break;
+        }
+    }
+    if (!$hasReceipt) {
+        $pdo->exec("ALTER TABLE entries ADD COLUMN receipt_path TEXT NOT NULL DEFAULT ''");
+    }
+
+    // 舊版資料庫 migration：ledgers 補 monthly_budget_cents 欄位（每月預算，整數分）
+    $hasBudget = false;
+    foreach ($cols as $col) {
+        if (($col['name'] ?? '') === 'monthly_budget_cents') {
+            $hasBudget = true;
+            break;
+        }
+    }
+    if (!$hasBudget) {
+        $pdo->exec('ALTER TABLE ledgers ADD COLUMN monthly_budget_cents INTEGER NOT NULL DEFAULT 0');
     }
 }
 

@@ -20,7 +20,7 @@ if ($ledgerId === false || $ledgerId === null) {
 
 // 驗證目前使用者對該帳本的存取權限（查詢 ledger_access）
 $stmt = $pdo->prepare('
-    SELECT l.name, l.archived, la.role
+    SELECT l.name, l.archived, l.monthly_budget_cents, la.role
     FROM ledgers l
     INNER JOIN ledger_access la ON la.ledger_id = l.id
     WHERE l.id = :ledger_id
@@ -36,6 +36,36 @@ if ((int) ($ledger['archived'] ?? 0) === 1) {
     redirect('./ledgers.php?error=1&msg=' . urlencode('此帳本已封存，無法檢視或新增記錄。'));
 }
 $accessRole = $ledger['role'];
+
+// 每月預算設定（SEC-04）：僅帳本 Owner（ledger_access.role='owner'）可修改。
+// 站台管理員（users.role='admin'）不在本帳本成員名單時同樣被拒（無 ledger_access 列即查無此帳）。
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '') === 'set_budget') {
+    $csrfRaw = $_POST['csrf_token'] ?? '';
+    if (!checkCsrf(is_string($csrfRaw) ? $csrfRaw : '')) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('安全驗證失敗，請重新操作。'));
+    }
+    if ($accessRole !== 'owner') {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('僅帳本擁有者（owner）可以設定預算。'));
+    }
+    $budgetRaw = $_POST['monthly_budget'] ?? '';
+    if (!is_string($budgetRaw)) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('預算金額格式不正確。'));
+    }
+    $budgetRaw = trim($budgetRaw);
+    if ($budgetRaw === '') {
+        // 清空欄位 = 取消預算（設為 0，回復未設定狀態）
+        $budgetCents = 0;
+    } else {
+        $budgetCents = toCents($budgetRaw); // 字串正則解析，非浮點；不接受負數
+        if ($budgetCents === false || $budgetCents <= 0) {
+            redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('預算金額格式不正確，請輸入大於 0 的金額。'));
+        }
+    }
+    $stmt = $pdo->prepare('UPDATE ledgers SET monthly_budget_cents = :budget WHERE id = :ledger_id');
+    $stmt->execute([':budget' => $budgetCents, ':ledger_id' => $ledgerId]);
+    logAudit('ledger_budget_set', 'ledger_id=' . $ledgerId . ' monthly_budget_cents=' . $budgetCents);
+    redirect('./ledger.php?ledger_id=' . $ledgerId . '&success=1&msg=' . urlencode('已更新每月預算。'));
+}
 
 // 本帳查詢參數：月份（預設本月 Asia/Taipei）、類別、類型、頁碼——皆為唯讀查詢
 $today = new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei'));
@@ -78,6 +108,34 @@ while ($row = $stmt->fetch()) {
 }
 $balanceCents = $incomeCents - $expenseCents;
 
+// 預算紅線（僅當月顯示；budget=0 未設定時不顯示任何預算區塊，維持原版面）
+$budgetCents = (int) ($ledger['monthly_budget_cents'] ?? 0);
+$isCurrentMonth = ($ym === $today->format('Y-m'));
+$budgetProgress = null; // ['percent'=>int, 'status'=>'ok|warn|danger', 'remaining'=>int]
+if ($isCurrentMonth && $budgetCents > 0) {
+    // 整數交叉相乘判定，避免浮點誤差：≥100% 危險、≥80% 警告
+    if ($expenseCents * 100 >= $budgetCents * 100) {
+        $budgetStatus = 'danger';
+    } elseif ($expenseCents * 100 >= $budgetCents * 80) {
+        $budgetStatus = 'warn';
+    } else {
+        $budgetStatus = 'ok';
+    }
+    $budgetProgress = [
+        'percent'   => (int) floor($expenseCents * 100 / $budgetCents), // 僅顯示用
+        'status'    => $budgetStatus,
+        'remaining' => $budgetCents - $expenseCents,
+    ];
+}
+
+// 預算輸入框回填值：不加千分位逗號，確保可原樣提交並被 toCents() 接受
+$budgetInputValue = '';
+if ($budgetCents > 0) {
+    $bDollars = intdiv($budgetCents, 100);
+    $bCents   = $budgetCents % 100;
+    $budgetInputValue = (string) $bDollars . ($bCents !== 0 ? '.' . str_pad((string) $bCents, 2, '0', STR_PAD_LEFT) : '');
+}
+
 // 條件子句（預備陳述式，具名佔位符）
 $where  = 'WHERE e.ledger_id = :ledger_id AND e.deleted = 0 AND e.entry_date BETWEEN :ms AND :me';
 $params = [':ledger_id' => $ledgerId, ':ms' => $monthStart, ':me' => $monthEnd];
@@ -101,7 +159,7 @@ if ($page > $totalPages) {
 $offset = ($page - 1) * $perPage;
 
 $stmt = $pdo->prepare("
-    SELECT e.id, e.entry_date, e.type, e.category, e.amount_cents, e.note, u.username
+    SELECT e.id, e.entry_date, e.type, e.category, e.amount_cents, e.note, e.receipt_path, u.username
     FROM entries e
     INNER JOIN users u ON u.id = e.user_id
     $where
@@ -142,6 +200,8 @@ $members = $memberStmt->fetchAll();
 
 $success = (($_GET['success'] ?? '') === '1');
 $error   = (($_GET['error'] ?? '') === '1');
+$msgRaw  = $_GET['msg'] ?? '';
+$flashMsg = is_string($msgRaw) ? $msgRaw : ''; // 來自 redirect 的自訂提示文字（顯示時經 h() 轉義）
 $canWrite = in_array($accessRole, ['owner', 'member'], true);
 
 // 傳票號碼：新增記錄成功後以 lastInsertId 導回，組出與分錄表一致的編號（收-008／支-012）
@@ -204,16 +264,19 @@ if ($voucherId !== false && $voucherId !== null && $voucherId > 0 && in_array($v
                         <h1><?php echo h($ledger['name']); ?></h1>
                         <p class="sub">您的身份：<span class="role-tag <?php echo h($accessRole); ?>"><?php echo h($accessRole); ?></span>　·　檢視：<strong><?php echo h($ymLabel); ?></strong>　·　<a href="./ledgers.php">← 返回帳本列表</a></p>
                     </div>
-                    <?php if ($canWrite): ?>
-                        <a href="./add_entry.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn primary">＋ 立傳票（新增記錄）</a>
-                    <?php endif; ?>
+                    <div style="display: flex; gap: 8px;">
+                        <a href="./export_csv.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📥 匯出明細 CSV</a>
+                        <?php if ($canWrite): ?>
+                            <a href="./add_entry.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn primary">＋ 立傳票（新增記錄）</a>
+                        <?php endif; ?>
+                    </div>
                 </div>
 
                 <?php if ($success): ?>
-                    <p class="alert success" role="status"><?php echo h($voucherMsg !== '' ? $voucherMsg : '操作成功完成。'); ?></p>
+                    <p class="alert success" role="status"><?php echo h($flashMsg !== '' ? $flashMsg : ($voucherMsg !== '' ? $voucherMsg : '操作成功完成。')); ?></p>
                 <?php endif; ?>
                 <?php if ($error): ?>
-                    <p class="alert error" role="alert">操作失敗：記錄不存在或您沒有該帳本的權限。</p>
+                    <p class="alert error" role="alert"><?php echo h($flashMsg !== '' ? $flashMsg : '操作失敗：記錄不存在或您沒有該帳本的權限。'); ?></p>
                 <?php endif; ?>
 
                 <div class="plates">
@@ -221,6 +284,48 @@ if ($voucherId !== false && $voucherId !== null && $voucherId > 0 && in_array($v
                     <div class="plate out"><small><?php echo h($ymLabel); ?>支出</small><div class="v">-<?php echo h(formatCents($expenseCents)); ?></div></div>
                     <div class="plate net"><small><?php echo h($ymLabel); ?>結餘</small><div class="v"><?php echo h($balanceCents >= 0 ? '+' : '') . h(formatCents($balanceCents)); ?></div></div>
                 </div>
+
+                <?php if ($budgetProgress !== null): ?>
+                    <?php
+                        $barWidth = min(100, $budgetProgress['percent']); // 進度條寬度上限 100%
+                        $budgetRemain = $budgetProgress['remaining'];
+                    ?>
+                    <div class="budget-box budget-<?php echo h($budgetProgress['status']); ?>" role="status">
+                        <div class="budget-head">
+                            <span class="budget-title">本月預算 <?php echo h(formatCents($budgetCents)); ?> 元</span>
+                            <?php if ($budgetProgress['status'] === 'danger'): ?>
+                                <span class="budget-chip danger">已超過預算</span>
+                            <?php elseif ($budgetProgress['status'] === 'warn'): ?>
+                                <span class="budget-chip warn">接近預算上限</span>
+                            <?php else: ?>
+                                <span class="budget-chip ok">預算尚充足</span>
+                            <?php endif; ?>
+                        </div>
+                        <div class="budget-bar" aria-hidden="true"><span class="budget-fill" style="width: <?php echo h((string) $barWidth); ?>%;"></span></div>
+                        <p class="budget-meta">
+                            已花費 <strong class="mono">-<?php echo h(formatCents($expenseCents)); ?></strong> 元 ·
+                            用了 <strong class="mono"><?php echo h((string) $budgetProgress['percent']); ?>%</strong> ·
+                            <?php if ($budgetRemain >= 0): ?>
+                                還剩 <strong class="mono"><?php echo h(formatCents($budgetRemain)); ?></strong> 元
+                            <?php else: ?>
+                                <strong>已超支 <?php echo h(formatCents(-$budgetRemain)); ?> 元</strong>
+                            <?php endif; ?>
+                        </p>
+                    </div>
+                <?php endif; ?>
+
+                <?php if ($accessRole === 'owner'): ?>
+                    <form method="POST" action="./ledger.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="budget-form">
+                        <label class="budget-form-label" for="monthly_budget">每月預算（元，清空即取消）</label>
+                        <div class="budget-form-row">
+                            <input type="text" inputmode="decimal" name="monthly_budget" id="monthly_budget" class="input mono budget-form-input"
+                                   value="<?php echo h($budgetInputValue); ?>" placeholder="例：30000">
+                            <button type="submit" class="btn sm">設定</button>
+                        </div>
+                        <input type="hidden" name="action" value="set_budget">
+                        <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
+                    </form>
+                <?php endif; ?>
 
                 <form method="GET" action="./ledger.php" class="filters" aria-label="查帳篩選">
                     <input type="hidden" name="ledger_id" value="<?php echo h((string) $ledgerId); ?>">
@@ -260,8 +365,9 @@ if ($voucherId !== false && $voucherId !== null && $voucherId > 0 && in_array($v
                                     <th>成員</th>
                                     <th>類別</th>
                                     <th class="num">金額</th>
+                                    <th class="receipt-col hide-m">收據</th>
                                     <th class="hide-m">備註</th>
-                                    <th class="ctr">作廢</th>
+                                    <th class="ctr">操作</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -272,15 +378,27 @@ if ($voucherId !== false && $voucherId !== null && $voucherId > 0 && in_array($v
                                         <td><?php echo h($entry['username']); ?></td>
                                         <td><?php echo h($entry['category']); ?></td>
                                         <td class="num <?php echo $entry['type'] === 'income' ? 'amt-in' : 'amt-out'; ?>"><?php echo h($entry['type'] === 'income' ? '+' : '-') . h(formatCents((int) $entry['amount_cents'])); ?></td>
+                                        <td class="receipt-col hide-m ctr">
+                                            <?php if (!empty($entry['receipt_path'])): ?>
+                                                <a href="./view_receipt.php?id=<?php echo h((string) $entry['id']); ?>" class="receipt-thumb" target="_blank" rel="noopener noreferrer" title="檢視收據">
+                                                    <img src="./view_receipt.php?id=<?php echo h((string) $entry['id']); ?>" alt="收據" loading="lazy" width="48" height="48">
+                                                </a>
+                                            <?php else: ?>
+                                                <span class="meta">—</span>
+                                            <?php endif; ?>
+                                        </td>
                                         <td class="hide-m"><?php echo h($entry['note']); ?></td>
                                         <td class="ctr">
                                             <?php if ($canWrite): ?>
-                                                <form method="POST" action="./delete_entry.php" onsubmit="return confirm('確定要作廢這筆記錄嗎？');">
-                                                    <input type="hidden" name="id" value="<?php echo h((string) $entry['id']); ?>">
-                                                    <input type="hidden" name="ledger_id" value="<?php echo h((string) $ledgerId); ?>">
-                                                    <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
-                                                    <button type="submit" class="btn danger sm">作廢</button>
-                                                </form>
+                                                <div class="ctr-actions">
+                                                    <a href="./edit_entry.php?ledger_id=<?php echo h((string) $ledgerId); ?>&id=<?php echo h((string) $entry['id']); ?>" class="btn secondary sm">編輯</a>
+                                                    <form method="POST" action="./delete_entry.php" onsubmit="return confirm('確定要作廢這筆記錄嗎？');">
+                                                        <input type="hidden" name="id" value="<?php echo h((string) $entry['id']); ?>">
+                                                        <input type="hidden" name="ledger_id" value="<?php echo h((string) $ledgerId); ?>">
+                                                        <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
+                                                        <button type="submit" class="btn danger sm">作廢</button>
+                                                    </form>
+                                                </div>
                                             <?php else: ?>
                                                 <span class="meta">—</span>
                                             <?php endif; ?>

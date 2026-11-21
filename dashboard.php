@@ -24,6 +24,7 @@ $stmt = $pdo->prepare('
         l.id,
         l.name,
         la.role AS access_role,
+        l.monthly_budget_cents,
         (SELECT COUNT(*) FROM entries e WHERE e.ledger_id = l.id AND e.deleted = 0) AS entry_count,
         (SELECT COALESCE(SUM(e.amount_cents), 0) FROM entries e
             WHERE e.ledger_id = l.id AND e.deleted = 0 AND e.type = \'income\'
@@ -115,9 +116,19 @@ $ledgerSummaries = $stmt->fetchAll();
                                     <?php
                                         $lsBalance = (int) $ls['month_income'] - (int) $ls['month_expense'];
                                         $lsTotalBalance = (int) $ls['total_income'] - (int) $ls['total_expense'];
+                                        // 預算紅線警示：僅在已設定預算且當月支出達門檻時顯示（≥80% 警告、≥100% 危險；整數判定）
+                                        $lsBudgetChip = '';
+                                        $lsBudget = (int) ($ls['monthly_budget_cents'] ?? 0);
+                                        if ($lsBudget > 0) {
+                                            if ((int) $ls['month_expense'] * 100 >= $lsBudget * 100) {
+                                                $lsBudgetChip = 'danger';
+                                            } elseif ((int) $ls['month_expense'] * 100 >= $lsBudget * 80) {
+                                                $lsBudgetChip = 'warn';
+                                            }
+                                        }
                                     ?>
                                     <tr>
-                                        <td><a class="ledger-link" href="./ledger.php?ledger_id=<?php echo h((string) $ls['id']); ?>"><strong><?php echo h($ls['name']); ?></strong></a></td>
+                                        <td><a class="ledger-link" href="./ledger.php?ledger_id=<?php echo h((string) $ls['id']); ?>"><strong><?php echo h($ls['name']); ?></strong></a><?php if ($lsBudgetChip !== ''): ?> <span class="budget-chip <?php echo h($lsBudgetChip); ?>"><?php echo $lsBudgetChip === 'danger' ? '已超支' : '近上限'; ?></span><?php endif; ?></td>
                                         <td><span class="role-tag <?php echo h($ls['access_role']); ?>"><?php echo h($ls['access_role']); ?></span></td>
                                         <td class="num amt-in">+<?php echo h(formatCents((int) $ls['month_income'])); ?></td>
                                         <td class="num amt-out">-<?php echo h(formatCents((int) $ls['month_expense'])); ?></td>

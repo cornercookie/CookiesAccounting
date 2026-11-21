@@ -71,26 +71,121 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!in_array($type, ['income', 'expense'], true)) {
             $error = '類別必須為收入或支出';
         } else {
-            $stmt = $pdo->prepare('
+            // 處理收據上傳
+            $receiptPath = '';
+            $receiptUploadFailed = false;
+            if (!empty($_FILES['receipt']['name'])) {
+                $receiptUpload = handleReceiptUpload();
+                if ($receiptUpload !== false) {
+                    $receiptPath = $receiptUpload;
+                } else {
+                    // 上傳失敗：回饋使用者，不靜默繼續；記錄不寫入，保留使用者輸入以便重試
+                    $receiptUploadFailed = true;
+                    $error = '收據上傳失敗：僅允許 JPEG / PNG / WebP，且檔案大小不得超過 5MB。';
+                }
+            }
+
+            if (!$receiptUploadFailed) {
+                $stmt = $pdo->prepare('
                 INSERT INTO entries
-                    (ledger_id, user_id, amount_cents, type, category, entry_date, note, deleted)
+                    (ledger_id, user_id, amount_cents, type, category, entry_date, note, receipt_path, deleted)
                 VALUES
-                    (:ledger_id, :user_id, :amount_cents, :type, :category, :entry_date, :note, 0)
+                    (:ledger_id, :user_id, :amount_cents, :type, :category, :entry_date, :note, :receipt_path, 0)
             ');
-            $stmt->execute([
-                ':ledger_id'   => $ledgerId,
-                ':user_id'     => $userId,
-                ':amount_cents' => $cents,
-                ':type'        => $type,
-                ':category'    => $category,
-                ':entry_date'  => $entryDate,
-                ':note'        => $note,
-            ]);
-            $newId = (int) $pdo->lastInsertId();
-            logAudit('entry_create', 'entry #' . $newId . ' · ledger ' . $ledgerId . ' · ' . $type . ' · ' . formatCents($cents));
-            redirect('./ledger.php?ledger_id=' . $ledgerId . '&success=1&voucher=' . $newId . '&vtype=' . $type);
+                $stmt->execute([
+                    ':ledger_id'   => $ledgerId,
+                    ':user_id'     => $userId,
+                    ':amount_cents' => $cents,
+                    ':type'        => $type,
+                    ':category'    => $category,
+                    ':entry_date'  => $entryDate,
+                    ':note'        => $note,
+                    ':receipt_path' => $receiptPath,
+                ]);
+                $newId = (int) $pdo->lastInsertId();
+                logAudit('entry_create', 'entry #' . $newId . ' · ledger ' . $ledgerId . ' · ' . $type . ' · ' . formatCents($cents));
+                redirect('./ledger.php?ledger_id=' . $ledgerId . '&success=1&voucher=' . $newId . '&vtype=' . $type);
+            }
         }
     }
+}
+
+/**
+ * 處理收據圖片上傳（SEC-02）。
+ *
+ * - 檢查上傳成功、大小上限 5MB、MIME Type（finfo_file）與副檔名（jpeg/png/webp）
+ * - 以 bin2hex(random_bytes(16)) 強制重新命名，禁止保留原始檔名
+ * - 儲存於 private_data/uploads/，回傳相對路徑；失敗回傳 false（不中斷主流程）
+ */
+function handleReceiptUpload(): string|false
+{
+    $file = $_FILES['receipt'] ?? null;
+    if (!is_array($file)) {
+        return false;
+    }
+
+    $error = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($error === UPLOAD_ERR_NO_FILE) {
+        return false;
+    }
+    if ($error !== UPLOAD_ERR_OK) {
+        return false;
+    }
+
+    $tmpName = (string) ($file['tmp_name'] ?? '');
+    $size    = (int) ($file['size'] ?? 0);
+    if ($tmpName === '' || !is_file($tmpName)) {
+        return false;
+    }
+    if ($size > 5 * 1024 * 1024) {
+        return false;
+    }
+
+    // MIME Type 檢查（finfo_file，不依賴 extension）
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    if ($finfo === false) {
+        logError('receipt upload: finfo_open failed (fileinfo extension unavailable)');
+        return false;
+    }
+    $mime = finfo_file($finfo, $tmpName);
+    finfo_close($finfo);
+    $allowedMime = [
+        'image/jpeg' => 'jpg',
+        'image/png'  => 'png',
+        'image/webp' => 'webp',
+    ];
+    if (!isset($allowedMime[$mime])) {
+        return false;
+    }
+    $ext = $allowedMime[$mime];
+
+    // 目標目錄
+    $uploadDir = __DIR__ . '/private_data/uploads';
+    if (!is_dir($uploadDir) && !@mkdir($uploadDir, 0770, true) && !is_dir($uploadDir)) {
+        return false;
+    }
+
+    // 亂數重新命名（bin2hex(random_bytes(16)) + 副檔名）
+    $filename = bin2hex(random_bytes(16)) . '.' . $ext;
+    $destPath = $uploadDir . '/' . $filename;
+    if (!@move_uploaded_file($tmpName, $destPath)) {
+        return false;
+    }
+
+    // 儲存後再次以 finfo_file 確認實際檔案內容仍為允許的圖片（防上傳期間被替換）
+    $verifyMime = '';
+    $verifyFinfo = finfo_open(FILEINFO_MIME_TYPE);
+    if ($verifyFinfo) {
+        $verifyMime = finfo_file($verifyFinfo, $destPath);
+        finfo_close($verifyFinfo);
+    }
+    if (!in_array($verifyMime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+        @unlink($destPath);
+        return false;
+    }
+
+    @chmod($destPath, 0640);
+    return 'private_data/uploads/' . $filename;
 }
 ?>
 <!DOCTYPE html>
@@ -149,10 +244,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <p class="alert error" role="alert"><?php echo h($error); ?></p>
                 <?php endif; ?>
 
+                <!-- AI 一句話記帳輔助區塊 -->
+                <div class="ai-assist" role="region" aria-label="AI 一句話記帳">
+                    <div class="ai-head">
+                        <button type="button" class="ai-toggle" aria-expanded="false" aria-controls="ai-panel">
+                            🤖 AI 一句話記帳
+                        </button>
+                    </div>
+                    <div id="ai-panel" class="ai-panel" hidden>
+                        <p class="ai-hint">說一句話或輸入文字，例如「今天中午吃麵 120 元」，AI 會自動幫你填好金額、分類與日期。</p>
+                        <div class="ai-input-group">
+                            <textarea id="aiText" class="ai-textarea" rows="2" placeholder="輸入收支內容……"></textarea>
+                            <button type="button" id="aiVoiceBtn" class="ai-voice-btn" title="語音輸入">
+                                🎤
+                            </button>
+                        </div>
+                        <div class="ai-actions">
+                            <button type="button" id="aiParseBtn" class="btn primary sm">解析並填入表單</button>
+                            <button type="button" id="aiClearBtn" class="btn secondary sm">清除</button>
+                            <span id="aiStatus" class="ai-status" role="status"></span>
+                        </div>
+                    </div>
+                </div>
+
                 <?php if (!$canWrite): ?>
                     <p class="alert error" role="alert">您的身份為檢視者，無法對此帳本新增記錄。</p>
                 <?php else: ?>
-                    <form method="POST" action="./add_entry.php?ledger_id=<?php echo h((string) $ledgerId); ?>" autocomplete="off" class="form">
+                    <form method="POST" action="./add_entry.php?ledger_id=<?php echo h((string) $ledgerId); ?>" autocomplete="off" class="form" enctype="multipart/form-data">
                         <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
 
                         <div class="form-grid">
@@ -195,6 +313,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <label for="note" class="label">備註（選填）</label>
                                 <textarea name="note" id="note" rows="3" class="textarea"><?php echo h($note); ?></textarea>
                             </div>
+
+                            <div class="field field-full">
+                                <label for="receipt" class="label">收據 / 發票照片（選填）</label>
+                                <input type="file" name="receipt" id="receipt" accept="image/jpeg,image/png,image/webp" class="input">
+                                <p class="meta" style="margin-top: var(--space-2);">JPEG / PNG / WebP，最大 5MB。上傳後將與本次記錄關聯。</p>
+                            </div>
                         </div>
 
                         <button type="submit" class="btn primary btn-block">儲存記錄</button>
@@ -205,5 +329,138 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </main>
         </div>
     </div>
+
+    <script>
+        // ---------- AI 一句話記帳（輔助填入表單，不直接寫入資料庫） ----------
+        (function () {
+            var toggle = document.querySelector('.ai-toggle');
+            var panel = document.getElementById('ai-panel');
+            var aiText = document.getElementById('aiText');
+            var aiVoiceBtn = document.getElementById('aiVoiceBtn');
+            var aiParseBtn = document.getElementById('aiParseBtn');
+            var aiClearBtn = document.getElementById('aiClearBtn');
+            var aiStatus = document.getElementById('aiStatus');
+
+            if (!toggle || !panel) return;
+
+            // 展開/摺疊 AI 區塊
+            toggle.addEventListener('click', function () {
+                var expanded = toggle.getAttribute('aria-expanded') === 'true';
+                toggle.setAttribute('aria-expanded', String(!expanded));
+                panel.hidden = expanded;
+                if (!expanded) aiText.focus();
+            });
+
+            // 清除 AI 輸入與狀態
+            aiClearBtn.addEventListener('click', function () {
+                aiText.value = '';
+                aiStatus.textContent = '';
+                aiStatus.className = 'ai-status';
+            });
+
+            // 語音輸入（Web Speech API，不支援則隱藏按鈕）
+            var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                aiVoiceBtn.style.display = 'none';
+            } else {
+                var recognition = new SpeechRecognition();
+                recognition.lang = 'zh-TW';
+                recognition.interimResults = false;
+                recognition.maxAlternatives = 1;
+
+                aiVoiceBtn.addEventListener('click', function () {
+                    aiStatus.textContent = '請說話……';
+                    aiStatus.className = 'ai-status ai-listening';
+                    recognition.start();
+                });
+
+                recognition.onresult = function (event) {
+                    var transcript = event.results[0][0].transcript;
+                    aiText.value = transcript;
+                    aiStatus.textContent = '已轉錄語音，點擊「解析並填入表單」。';
+                    aiStatus.className = 'ai-status';
+                };
+
+                recognition.onerror = function () {
+                    aiStatus.textContent = '語音辨識失敗，請改用文字輸入。';
+                    aiStatus.className = 'ai-status ai-error';
+                };
+
+                recognition.onend = function () {
+                    aiStatus.className = 'ai-status';
+                };
+            }
+
+            // 呼叫後端 ai_parse.php 解析文字，並填入表單欄位
+            aiParseBtn.addEventListener('click', function () {
+                var text = aiText.value.trim();
+                if (!text) {
+                    aiStatus.textContent = '請先輸入或說出收支內容。';
+                    aiStatus.className = 'ai-status ai-error';
+                    return;
+                }
+
+                aiParseBtn.disabled = true;
+                aiParseBtn.textContent = '解析中…';
+                aiStatus.textContent = '正在向 AI 解析…';
+                aiStatus.className = 'ai-status';
+
+                fetch('./ai_parse.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                    body: JSON.stringify({ text: text })
+                })
+                .then(function (resp) { return resp.json(); })
+                .then(function (data) {
+                    aiParseBtn.disabled = false;
+                    aiParseBtn.textContent = '解析並填入表單';
+
+                    if (!data.ok) {
+                        aiStatus.textContent = data.error || '解析失敗，請手動填寫。';
+                        aiStatus.className = 'ai-status ai-error';
+                        return;
+                    }
+
+                    var d = data.data;
+                    var filled = [];
+
+                    if (d.amount !== null) {
+                        document.getElementById('amount').value = d.amount;
+                        filled.push('金額 ' + d.amount);
+                    }
+                    if (d.category !== null) {
+                        document.getElementById('category').value = d.category;
+                        filled.push('分類 ' + d.category);
+                    }
+                    if (d.date !== null) {
+                        document.getElementById('entry_date').value = d.date;
+                        filled.push('日期 ' + d.date);
+                    }
+                    if (d.type !== null) {
+                        document.getElementById('type').value = d.type;
+                        filled.push('類型 ' + (d.type === 'income' ? '收入' : '支出'));
+                    }
+                    if (d.description !== null && d.description !== '') {
+                        document.getElementById('note').value = d.description;
+                        filled.push('備註 ' + d.description);
+                    }
+
+                    aiStatus.textContent = filled.length > 0
+                        ? '已填入：' + filled.join('，') + '（請確認無誤後再儲存）'
+                        : 'AI 未能解析出可用欄位，請手動填寫。';
+                    aiStatus.className = 'ai-status ' + (filled.length > 0 ? 'ai-ok' : 'ai-warn');
+
+                    // 捲動至表單首欄，方便使用者確認
+                    document.getElementById('amount').focus();
+                })
+                .catch(function () {
+                    aiParseBtn.disabled = false;
+                    aiParseBtn.textContent = '解析並填入表單';
+                    aiStatus.textContent = '網路錯誤，請手動填寫。';
+                    aiStatus.className = 'ai-status ai-error';
+                });
+            });
+        })();
+    </script>
 </body>
 </html>

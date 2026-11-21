@@ -34,6 +34,9 @@ $stmt = $pdo->prepare('
             WHERE e.ledger_id = l.id AND e.deleted = 0 AND e.type = \'expense\'
               AND e.entry_date BETWEEN :msB AND :meB) AS month_expense,
         (SELECT COALESCE(SUM(e.amount_cents), 0) FROM entries e
+            WHERE e.ledger_id = l.id AND e.deleted = 0 AND e.type = \'transfer\'
+              AND e.entry_date BETWEEN :msA AND :meA) AS month_transfer,
+        (SELECT COALESCE(SUM(e.amount_cents), 0) FROM entries e
             WHERE e.ledger_id = l.id AND e.deleted = 0 AND e.type = \'income\') AS total_income,
         (SELECT COALESCE(SUM(e.amount_cents), 0) FROM entries e
             WHERE e.ledger_id = l.id AND e.deleted = 0 AND e.type = \'expense\') AS total_expense
@@ -205,7 +208,7 @@ try {
                                 <tr>
                                     <th rowspan="2">帳本</th>
                                     <th rowspan="2">您的身份</th>
-                                    <th colspan="3" class="group-h">本月</th>
+                                    <th colspan="4" class="group-h">本月</th>
                                     <th colspan="3" class="group-h group-start">總表</th>
                                     <th class="num hide-m" rowspan="2">記錄數</th>
                                     <th class="ctr" rowspan="2">進入</th>
@@ -214,6 +217,7 @@ try {
                                     <th class="num">收入</th>
                                     <th class="num">支出</th>
                                     <th class="num">結餘</th>
+                                    <th class="num">轉帳</th>
                                     <th class="num group-start">總收入</th>
                                     <th class="num">總支出</th>
                                     <th class="num">總損益</th>
@@ -241,6 +245,7 @@ try {
                                         <td class="num amt-in">+<?php echo h(formatCents((int) $ls['month_income'])); ?></td>
                                         <td class="num amt-out">-<?php echo h(formatCents((int) $ls['month_expense'])); ?></td>
                                         <td class="num"><?php echo h($lsBalance >= 0 ? '+' : '') . h(formatCents($lsBalance)); ?></td>
+                                        <td class="num amt-neutral"><?php echo h(formatCents((int) $ls['month_transfer'])); ?></td>
                                         <td class="num amt-in">+<?php echo h(formatCents((int) $ls['total_income'])); ?></td>
                                         <td class="num amt-out">-<?php echo h(formatCents((int) $ls['total_expense'])); ?></td>
                                         <td class="num"><?php echo h($lsTotalBalance >= 0 ? '+' : '') . h(formatCents($lsTotalBalance)); ?></td>

@@ -65,7 +65,7 @@ fputcsv($output, ['日期', '類型', '金額 (元)', '分類', '記錄者', '�
 // 輸出資料列（含 CSV 公式注入防護）
 foreach ($entries as $row) {
     $date = $row['entry_date'];
-    $type = $row['type'] === 'income' ? '收入' : '支出';
+    $type = $row['type'] === 'income' ? '收入' : ($row['type'] === 'expense' ? '支出' : '轉帳');
     // 金額以整數分儲存，顯示時改用整數運算避免浮點誤差（FIND-019）
     $dollars = intdiv((int) $row['amount_cents'], 100);
     $centsPart = (int) $row['amount_cents'] % 100;

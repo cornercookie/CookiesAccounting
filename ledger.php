@@ -264,14 +264,15 @@ $monthStart = $ym . '-01';
 $monthEnd   = (new DateTimeImmutable($monthStart . ' 00:00:00', new DateTimeZone('Asia/Taipei')))->format('Y-m-t');
 
 $typeSel = $_GET['type'] ?? '';
-if (!in_array($typeSel, ['', 'income', 'expense'], true)) {
+if (!in_array($typeSel, ['', 'income', 'expense', 'transfer'], true)) {
     $typeSel = '';
 }
 $catSel = isset($_GET['category']) && is_string($_GET['category']) ? trim($_GET['category']) : '';
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 50;
 
-// 所選月份的收入／支出彙總（不含類別/類型篩選；整數分儲存，顯示除以 100）
+// 所選月份的收入／支出／轉帳彙總（不含類別/類型篩選；整數分儲存，顯示除以 100）
+// 轉帳（type='transfer'）不計入收入或支出，僅單獨統計
 $stmt = $pdo->prepare('
     SELECT type, SUM(amount_cents) AS total_cents
     FROM entries
@@ -283,12 +284,15 @@ $stmt = $pdo->prepare('
 $stmt->execute([':ledger_id' => $ledgerId, ':monthStart' => $monthStart, ':monthEnd' => $monthEnd]);
 $incomeCents  = 0;
 $expenseCents = 0;
+$transferCents = 0;
 while ($row = $stmt->fetch()) {
     $total = (int) $row['total_cents'];
     if ($row['type'] === 'income') {
         $incomeCents = $total;
     } elseif ($row['type'] === 'expense') {
         $expenseCents = $total;
+    } elseif ($row['type'] === 'transfer') {
+        $transferCents = $total;
     }
 }
 $balanceCents = $incomeCents - $expenseCents;
@@ -670,6 +674,7 @@ if (!empty($_SESSION['voice_played'])) {
                             <option value="">全部</option>
                             <option value="expense"<?php echo $typeSel === 'expense' ? ' selected' : ''; ?>>支出聯（藍）</option>
                             <option value="income"<?php echo $typeSel === 'income' ? ' selected' : ''; ?>>收入聯（紅）</option>
+                            <option value="transfer"<?php echo $typeSel === 'transfer' ? ' selected' : ''; ?>>轉帳</option>
                         </select>
                     </label>
                     <button type="submit" class="btn primary sm">查帳</button>
@@ -752,11 +757,11 @@ if (!empty($_SESSION['voice_played'])) {
                             <tbody>
                                 <?php foreach ($entries as $entry): ?>
                                     <tr>
-                                        <td><span class="vno <?php echo $entry['type'] === 'income' ? 'in' : 'out'; ?>"><?php echo $entry['type'] === 'income' ? '收' : '支'; ?>-<?php echo h(str_pad((string) $entry['id'], 3, '0', STR_PAD_LEFT)); ?></span></td>
+                                        <td><span class="vno <?php echo $entry['type'] === 'income' ? 'in' : ($entry['type'] === 'expense' ? 'out' : 'plain'); ?>"><?php echo $entry['type'] === 'income' ? '收' : ($entry['type'] === 'expense' ? '支' : '轉'); ?>-<?php echo h(str_pad((string) $entry['id'], 3, '0', STR_PAD_LEFT)); ?></span></td>
                                         <td class="mono"><?php echo h($entry['entry_date']); ?></td>
                                         <td><?php echo h($entry['username']); ?></td>
                                         <td><?php echo h($entry['category']); ?></td>
-                                        <td class="num <?php echo $entry['type'] === 'income' ? 'amt-in' : 'amt-out'; ?>"><?php echo h($entry['type'] === 'income' ? '+' : '-') . h(formatCents((int) $entry['amount_cents'])); ?></td>
+                                        <td class="num <?php echo $entry['type'] === 'income' ? 'amt-in' : ($entry['type'] === 'expense' ? 'amt-out' : 'amt-neutral'); ?>"><?php echo h(($entry['type'] === 'income' ? '+' : ($entry['type'] === 'expense' ? '-' : '')) . formatCents((int) $entry['amount_cents'])); ?></td>
                                         <td class="receipt-col hide-m ctr">
                                             <?php if (!empty($entry['receipt_path'])): ?>
                                                 <a href="./view_receipt.php?id=<?php echo h((string) $entry['id']); ?>" class="receipt-thumb" target="_blank" rel="noopener noreferrer" title="檢視收據">

@@ -76,8 +76,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = '請輸入類別';
         } elseif (mb_strlen($category, 'UTF-8') > 50) {
             $error = '類別長度超過 50 字元限制，請縮短後再提交。';
-        } elseif (!in_array($type, ['income', 'expense'], true)) {
-            $error = '類別必須為收入或支出';
+        } elseif (!in_array($type, ['income', 'expense', 'transfer'], true)) {
+            $error = '類別必須為收入、支出或轉帳';
         } else {
             // 處理收據上傳
             $receiptPath = '';
@@ -113,7 +113,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $newId = (int) $pdo->lastInsertId();
                 logAudit('entry_create', 'entry #' . $newId . ' · ledger ' . $ledgerId . ' · ' . $type . ' · ' . formatCents($cents));
                 $_SESSION['voice_played'] = 1;
-                $_SESSION['voice_text'] = ($type === 'income' ? '收入' : '支出') . ' ' . formatCents($cents) . ' 元已儲存';
+                $_SESSION['voice_text'] = ($type === 'income' ? '收入' : ($type === 'expense' ? '支出' : '轉帳')) . ' ' . formatCents($cents) . ' 元已儲存';
                 redirect('./ledger.php?ledger_id=' . $ledgerId . '&success=1&voucher=' . $newId . '&vtype=' . $type);
             }
         }
@@ -319,6 +319,7 @@ function handleReceiptUpload(): string|false
                                 <select name="type" id="type" class="select">
                                     <option value="expense" <?php echo $type === 'expense' ? 'selected' : ''; ?>>支出聯（藍）</option>
                                     <option value="income" <?php echo $type === 'income' ? 'selected' : ''; ?>>收入聯（紅）</option>
+                                    <option value="transfer"<?php echo $type === 'transfer' ? ' selected' : ''; ?>>轉帳</option>
                                 </select>
                             </div>
 

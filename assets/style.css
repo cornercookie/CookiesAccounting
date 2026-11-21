@@ -205,6 +205,7 @@ body {
 .table td.ctr, .table th.ctr { text-align: center; }
 td.amt-in  { color: var(--red);  font-weight: 700; }
 td.amt-out { color: var(--blue); font-weight: 700; }
+td.amt-neutral { color: var(--ink); font-weight: 700; }
 
 /* 動作欄（直排雙按鈕） */
 .actions { display: flex; flex-direction: column; gap: var(--space-2); align-items: stretch; min-width: 112px; }

@@ -107,5 +107,23 @@ date_default_timezone_set('Asia/Taipei');
 ini_set('session.cookie_httponly', '1');
 ini_set('session.use_only_cookies', '1');
 ini_set('session.cookie_samesite', 'Lax');
+// Session Cookie 僅透過 HTTPS 傳輸（FIND-010）。部署前請先確認主機已啟用 HTTPS，
+// 否則 Cookie 無法傳送而導致登入失敗。
+ini_set('session.cookie_secure', '1');
+// Session 伺服器端最長存活 24 分鐘（FIND-016），超過即視為過期需重新登入。
+ini_set('session.gc_maxlifetime', 1440);
+// Cookie 於瀏覽器關閉時即過期，避免共享電腦殘留登入狀態。
+ini_set('session.cookie_lifetime', '0');
 session_name('cookies_accounting');
 session_start();
+
+// Content Security Policy（FIND-011）：預設僅允許同源資源，防止 XSS 與資料外洩。
+// 現有頁面內聯大量 <script>（字級切換、AI 語音等），短期內需保留 'unsafe-inline'，
+// 長期建議將內聯腳本移至外部 JS 檔案並改用 nonce。
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self';");
+
+// 點擊劫持防護（FIND-012）：禁止頁面被 <iframe> 嵌入。
+header('X-Frame-Options: DENY');
+
+// 參照策略（FIND-015）：避免從內部頁面連結外部網站時洩漏完整 URL。
+header('Referrer-Policy: strict-origin-when-cross-origin');

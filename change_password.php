@@ -17,29 +17,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!checkCsrf($_POST['csrf_token'] ?? '')) {
         $error = '請求驗證失敗，請重新提交表單。';
     } else {
-        $current = $_POST['current_password'] ?? '';
-        $new     = $_POST['new_password'] ?? '';
-        $confirm = $_POST['confirm_password'] ?? '';
-
-        if ($current === '' || $new === '' || $confirm === '') {
-            $error = '請填寫所有欄位。';
-        } elseif (strlen($new) < 6) {
-            $error = '新密碼至少需要 6 個字元。';
-        } elseif ($new !== $confirm) {
-            $error = '新密碼與確認密碼不一致。';
+        // 舊密碼失敗次數以 user_id 為鍵獨立鎖定，避免暴力破解（FIND-003）
+        $pwdChangeIdentifier = 'password_change:' . $myId;
+        if (isLoginLocked($pwdChangeIdentifier)) {
+            $error = '目前密碼錯誤。';
         } else {
-            $stmt = $pdo->prepare('SELECT password_hash FROM users WHERE id = :id LIMIT 1');
-            $stmt->execute([':id' => $myId]);
-            $row = $stmt->fetch();
-            if ($row === false || !password_verify($current, $row['password_hash'])) {
-                // 不提示是哪一段錯誤的細節，避免暴露帳號狀態
-                $error = '目前密碼錯誤。';
+            $current = $_POST['current_password'] ?? '';
+            $new     = $_POST['new_password'] ?? '';
+            $confirm = $_POST['confirm_password'] ?? '';
+
+            if ($current === '' || $new === '' || $confirm === '') {
+                $error = '請填寫所有欄位。';
             } else {
-                $hash = password_hash($new, PASSWORD_DEFAULT);
-                $stmt = $pdo->prepare('UPDATE users SET password_hash = :hash WHERE id = :id');
-                $stmt->execute([':hash' => $hash, ':id' => $myId]);
-                logAudit('password_change');
-                $success = true;
+                $strength = validatePasswordStrength($new);
+                if (!$strength['ok']) {
+                    $error = $strength['reason'];
+                } elseif ($new !== $confirm) {
+                    $error = '新密碼與確認密碼不一致。';
+                } else {
+                    $stmt = $pdo->prepare('SELECT password_hash FROM users WHERE id = :id LIMIT 1');
+                    $stmt->execute([':id' => $myId]);
+                    $row = $stmt->fetch();
+                    if ($row === false || !password_verify($current, $row['password_hash'])) {
+                        // 記錄失敗，累計達 5 次將鎖定 15 分鐘；訊息不區分是否為密碼錯誤
+                        recordLoginFailure($pwdChangeIdentifier);
+                        logAudit('password_change_failed', 'user_id=' . $myId);
+                        $error = '目前密碼錯誤。';
+                    } else {
+                        $hash = password_hash($new, PASSWORD_DEFAULT);
+                        $stmt = $pdo->prepare('UPDATE users SET password_hash = :hash WHERE id = :id');
+                        $stmt->execute([':hash' => $hash, ':id' => $myId]);
+                        logAudit('password_change');
+                        $success = true;
+                    }
+                }
             }
         }
     }

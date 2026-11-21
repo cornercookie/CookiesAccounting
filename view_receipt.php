@@ -75,11 +75,21 @@ if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
     exit('不允許的檔案型別。');
 }
 
-// 串流輸出
+// MIME 對應副檔名，用於 Content-Disposition 預設檔名
+$mimeToExt = [
+    'image/jpeg' => 'jpg',
+    'image/png'  => 'png',
+    'image/webp' => 'webp',
+];
+$receiptExt = $mimeToExt[$mime] ?? 'bin';
+
+// 串流輸出：強制附件下載，避免瀏覽器內嵌顯示導致 Referer 洩漏
 header('Content-Type: ' . $mime);
+header('Content-Disposition: attachment; filename="receipt-' . $entryId . '.' . $receiptExt . '"');
 header('Content-Length: ' . (string) filesize($realPath));
 header('Cache-Control: private, max-age=3600');
 header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: no-referrer');
 readfile($realPath);
 logAudit('entry_receipt_view', 'entry #' . $entryId . ' · receipt ' . $receiptPath);
 exit;

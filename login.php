@@ -19,12 +19,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($username === '' || $password === '') {
         $error = '請輸入帳號與密碼';
     } else {
-        $identifier = $username . '|' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+        // 登入失敗計數僅綁定於帳號，不納入 IP，避免同一公網 IP 下的家庭成員互相導致鎖定（FIND-001）
+        $identifier = $username;
 
         if (isLoginLocked($identifier)) {
-            // 鎖定期間內不進行密碼比對，避免暴露是否鎖定的差別資訊
+            // 鎖定期間內不進行密碼比對；前端顯示與一般失敗相同訊息，避免使用者列舉（FIND-005）
             logAudit('login_locked', 'identifier: ' . $identifier, null, $username);
-            $error = '帳號已鎖定，請稍後再試';
+            $error = '帳號或密碼錯誤';
         } else {
             $pdo = getPdo();
             $stmt = $pdo->prepare(
@@ -45,6 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['role']      = $user['role'];
                 $_SESSION['authed']    = true;
                 $_SESSION['authed_at'] = time();
+                $_SESSION['last_activity'] = time(); // FIND-016：記錄最後活動時間
                 $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
                 logAudit('login', '', (int) $user['id'], (string) $user['username']);
 

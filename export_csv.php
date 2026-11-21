@@ -66,15 +66,19 @@ fputcsv($output, ['日期', '類型', '金額 (元)', '分類', '記錄者', '�
 foreach ($entries as $row) {
     $date = $row['entry_date'];
     $type = $row['type'] === 'income' ? '收入' : '支出';
-    $amount = number_format($row['amount_cents'] / 100, 2, '.', '');
+    // 金額以整數分儲存，顯示時改用整數運算避免浮點誤差（FIND-019）
+    $dollars = intdiv((int) $row['amount_cents'], 100);
+    $centsPart = (int) $row['amount_cents'] % 100;
+    $amount = $dollars . '.' . str_pad((string) $centsPart, 2, '0', STR_PAD_LEFT);
     $category = $row['category'];
     $username = $row['username'];
     $description = (string) ($row['note'] ?? '');
 
     // 依資安規範 SEC-03：CSV 公式注入防護 (Formula Injection)
-    // 若欄位開頭為 =, +, -, @，強制在前方加上單引號
+    // 若欄位開頭為 =, +, -, @, \t, \r，強制在前方加上單引號，避免 Excel 等軟體將其解析為公式
+    $formulaPrefixes = ['=', '+', '-', '@', "\t", "\r"];
     foreach ([&$category, &$description, &$username] as &$field) {
-        if ($field !== '' && in_array($field[0], ['=', '+', '-', '@'], true)) {
+        if ($field !== '' && in_array($field[0], $formulaPrefixes, true)) {
             $field = "'" . $field;
         }
     }

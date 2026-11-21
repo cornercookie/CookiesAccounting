@@ -37,8 +37,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!preg_match('/^[A-Za-z0-9_]{2,32}$/', $username)) {
             redirect('./users.php?error=1&msg=' . urlencode('帳號格式不正確（2–32 個字元，僅限英數字與底線）。'));
         }
-        if (strlen($password) < 6) {
-            redirect('./users.php?error=1&msg=' . urlencode('密碼長度至少需 6 個字元。'));
+        $strength = validatePasswordStrength($password);
+        if (!$strength['ok']) {
+            redirect('./users.php?error=1&msg=' . urlencode($strength['reason']));
         }
         if (!in_array($role, ['admin', 'member'], true)) {
             redirect('./users.php?error=1&msg=' . urlencode('角色必須為管理員或成員。'));
@@ -72,8 +73,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($targetId === false || $targetId === null) {
             redirect('./users.php?error=1&msg=' . urlencode('指定的使用者不存在。'));
         }
-        if (strlen($password) < 6) {
-            redirect('./users.php?error=1&msg=' . urlencode('新密碼長度至少需 6 個字元。'));
+        $strength = validatePasswordStrength($password);
+        if (!$strength['ok']) {
+            redirect('./users.php?error=1&msg=' . urlencode($strength['reason']));
         }
 
         $stmt = $pdo->prepare('SELECT id, username FROM users WHERE id = :id LIMIT 1');
@@ -84,7 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $hash = password_hash($password, PASSWORD_DEFAULT);
-        $stmt = $pdo->prepare('UPDATE users SET password_hash = :hash WHERE id = :id');
+        $stmt = $pdo->prepare('UPDATE users SET password_hash = :hash, password_changed_at = datetime(\'now\',\'localtime\') WHERE id = :id');
         $stmt->execute([':hash' => $hash, ':id' => $targetId]);
         logAudit('admin_user_reset_password', 'target_user_id=' . $targetId . ' username=' . (string) $target['username']);
         redirect('./users.php?success=1&msg=' . urlencode('該使用者的密碼已重設。'));
@@ -119,7 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        $stmt = $pdo->prepare('UPDATE users SET role = :role WHERE id = :id');
+        $stmt = $pdo->prepare('UPDATE users SET role = :role, password_changed_at = datetime(\'now\',\'localtime\') WHERE id = :id');
         $stmt->execute([':role' => $role, ':id' => $targetId]);
         logAudit('admin_user_change_role', 'target_user_id=' . $targetId . ' username=' . (string) $target['username'] . ' ' . $target['role'] . '→' . $role);
         redirect('./users.php?success=1&msg=' . urlencode('角色已更新。'));
@@ -156,7 +158,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $stmt = $pdo->prepare('DELETE FROM ledger_access WHERE user_id = :id');
             $stmt->execute([':id' => $targetId]);
-            $stmt = $pdo->prepare('DELETE FROM entries WHERE user_id = :id');
+            // 軟刪除該使用者的帳務記錄，保留資料與審計可追溯性（FIND-004）
+            $stmt = $pdo->prepare('UPDATE entries SET deleted = 1 WHERE user_id = :id');
             $stmt->execute([':id' => $targetId]);
             $stmt = $pdo->prepare('DELETE FROM users WHERE id = :id');
             $stmt->execute([':id' => $targetId]);

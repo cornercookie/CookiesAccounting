@@ -46,6 +46,45 @@ if ($apiKey === '') {
     exit;
 }
 
+// 單使用者速率限制（FIND-014）：避免濫用耗盡 Gemini API 配額。
+// 以 user_id 為鍵，最近 1 分鐘內最多 20 次呼叫；超過則回傳 HTTP 429。
+$userId = (int) ($_SESSION['user_id'] ?? 0);
+if ($userId > 0) {
+    $pdo = getPdo();
+    $pdo->exec(<<<'SQL'
+    CREATE TABLE IF NOT EXISTS api_rate_limits (
+        identifier TEXT    NOT NULL,
+        created_at TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_api_rate_limits_identifier ON api_rate_limits(identifier);
+    CREATE INDEX IF NOT EXISTS idx_api_rate_limits_created_at ON api_rate_limits(created_at);
+    SQL);
+    // 清理超過 24 小時的舊紀錄
+    $cutoff = date('Y-m-d H:i:s', strtotime('-24 hours'));
+    $pdo->prepare('DELETE FROM api_rate_limits WHERE created_at < :cutoff')
+        ->execute([':cutoff' => $cutoff]);
+    // 檢查最近 1 分鐘內的呼叫次數
+    $windowStart = date('Y-m-d H:i:s', strtotime('-1 minute'));
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*) AS cnt FROM api_rate_limits
+         WHERE identifier = :identifier AND created_at >= :windowStart'
+    );
+    $stmt->execute([
+        ':identifier' => (string) $userId,
+        ':windowStart' => $windowStart,
+    ]);
+    $callCount = (int) ($stmt->fetchColumn() ?? 0);
+    if ($callCount >= 20) {
+        http_response_code(429);
+        echo json_encode(['ok' => false, 'error' => '呼叫過於頻繁，請稍後再試。'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    // 記錄本次呼叫
+    $pdo->prepare(
+        'INSERT INTO api_rate_limits (identifier, created_at) VALUES (:identifier, datetime(\'now\',\'localtime\'))'
+    )->execute([':identifier' => (string) $userId]);
+}
+
 // 組建 Gemini prompt：要求回傳純 JSON，不加 Markdown 代碼區塊
 $prompt = <<<'PROMPT'
 你是一個記帳助手，請將使用者說的一句話解析為結構化 JSON，且只輸出 JSON，不要加 Markdown 代碼區塊（```json ... ```）或任何說明文字。

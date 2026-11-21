@@ -61,7 +61,8 @@ function ensureSchema(PDO $pdo): void
         password_hash  TEXT    NOT NULL,
         role           TEXT    NOT NULL DEFAULT 'admin'
                        CHECK (role IN ('admin','member')),
-        created_at     TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+        created_at     TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+        password_changed_at TEXT    -- 密碼最後變更時間，用於使既有 Session 失效（FIND-013）
     );
 
     CREATE TABLE IF NOT EXISTS ledgers (
@@ -221,6 +222,19 @@ SQL);
     if (!$hasBudget) {
         $pdo->exec('ALTER TABLE ledgers ADD COLUMN monthly_budget_cents INTEGER NOT NULL DEFAULT 0');
     }
+
+    // 舊版資料庫 migration：users 補 password_changed_at 欄位（使既有 Session 失效用）
+    $usersCols = $pdo->query('PRAGMA table_info(users)')->fetchAll(PDO::FETCH_ASSOC);
+    $hasPasswordChangedAt = false;
+    foreach ($usersCols as $col) {
+        if (($col['name'] ?? '') === 'password_changed_at') {
+            $hasPasswordChangedAt = true;
+            break;
+        }
+    }
+    if (!$hasPasswordChangedAt) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN password_changed_at TEXT");
+    }
 }
 
 /**
@@ -245,7 +259,7 @@ function seedAdmin(PDO $pdo): void
     $pdo->beginTransaction();
     try {
         $stmt = $pdo->prepare(
-            'INSERT INTO users (username, password_hash, role) VALUES (:username, :hash, :role)'
+            'INSERT INTO users (username, password_hash, role, password_changed_at) VALUES (:username, :hash, :role, datetime(\'now\',\'localtime\'))'
         );
         $stmt->execute([
             ':username' => $username,

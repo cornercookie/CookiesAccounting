@@ -20,7 +20,7 @@
 1. 上傳程式碼到 `public_html/CookiesAccounting/`（不要上傳 `.env` 或既有 `.db`）。
 2. PHP 設為 8.1+，並啟用 `pdo_sqlite`。
 3. `private_data/` 設為網頁伺服器可寫（`0770` 或 `0775`）。
-4. 複製 `.env.example` 為 `.env`，把 `ADMIN_USERNAME` 與 `ADMIN_PASSWORD` 改成強密碼，不要沿用範本值。
+4. 複製 `.env.example` 為 `.env`，把 `ADMIN_USERNAME` 與 `ADMIN_PASSWORD` 替換為您自行設定的強密碼，嚴禁沿用範本佔位符值（`YOUR_STRONG_PASSWORD_HERE`）。
 5. 確認直接開啟 `/.env` 與 `/private_data/` 都回傳 403。
 
 部署細節見 `FINAL_NOTES.md`。

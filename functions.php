@@ -38,6 +38,64 @@ function requireLogin(): void
     if (empty($_SESSION['user_id'])) {
         redirect('./login.php');
     }
+    requireSessionFresh();
+}
+
+/**
+ * 檢查 Session 是否仍新鮮（FIND-013、FIND-016）。
+ *
+ * 若使用者的密碼在 Session 建立之後已被變更（password_changed_at > authed_at），
+ * 則使既有 Session 失效並導向登入頁，防止已竊取的 Session 在密碼重設後仍可存取系統。
+ *
+ * 若 Session 超過閒置閾值（預設 30 分鐘）未有任何活動，也會導向登入頁，
+ * 避免共享電腦上遺留的已登入 Session 被他人濫用。
+ */
+function requireSessionFresh(): void
+{
+    $userId = (int) ($_SESSION['user_id'] ?? 0);
+    if ($userId <= 0) {
+        return;
+    }
+    $authedAt = (int) ($_SESSION['authed_at'] ?? 0);
+    if ($authedAt <= 0) {
+        return;
+    }
+
+    // FIND-016：閒置過期檢查（30 分鐘）
+    $idleTimeout = 1800; // 秒
+    $lastActivity = (int) ($_SESSION['last_activity'] ?? $authedAt);
+    if (time() - $lastActivity > $idleTimeout) {
+        $_SESSION = [];
+        if (isset($_COOKIE[session_name()])) {
+            setcookie(session_name(), '', time() - 42000, '/');
+        }
+        session_destroy();
+        redirect('./login.php');
+    }
+    // 更新最後活動時間
+    $_SESSION['last_activity'] = time();
+
+    $pdo = getPdo();
+    $stmt = $pdo->prepare('SELECT password_changed_at FROM users WHERE id = :id LIMIT 1');
+    $stmt->execute([':id' => $userId]);
+    $row = $stmt->fetch();
+    if ($row === false) {
+        return;
+    }
+    $passwordChangedAt = (string) ($row['password_changed_at'] ?? '');
+    if ($passwordChangedAt === '') {
+        return; // 從未變更過密碼，不強制失效
+    }
+    $changedAt = strtotime($passwordChangedAt);
+    if ($changedAt !== false && $authedAt < $changedAt) {
+        // 密碼在 Session 建立後已變更，銷毀既有 Session
+        $_SESSION = [];
+        if (isset($_COOKIE[session_name()])) {
+            setcookie(session_name(), '', time() - 42000, '/');
+        }
+        session_destroy();
+        redirect('./login.php');
+    }
 }
 
 /**
@@ -121,6 +179,31 @@ function isValidDate(string $date): bool
 {
     $dt = DateTime::createFromFormat('Y-m-d', $date);
     return $dt !== false && $dt->format('Y-m-d') === $date;
+}
+
+/**
+ * 驗證密碼強度（FIND-018）。
+ *
+ * 規則：
+ * - 長度至少 10 字元
+ * - 至少包含大寫、小寫、數字、符號中的三種類別
+ *
+ * 回傳 ['ok' => bool, 'reason' => string]，ok 為 true 時 reason 為空字串。
+ */
+function validatePasswordStrength(string $password): array
+{
+    if (strlen($password) < 10) {
+        return ['ok' => false, 'reason' => '新密碼至少需要 10 個字元。'];
+    }
+    $hasUpper   = (bool) preg_match('/[A-Z]/', $password);
+    $hasLower   = (bool) preg_match('/[a-z]/', $password);
+    $hasDigit   = (bool) preg_match('/[0-9]/', $password);
+    $hasSymbol  = (bool) preg_match('/[^A-Za-z0-9]/', $password);
+    $categoryCount = $hasUpper + $hasLower + $hasDigit + $hasSymbol;
+    if ($categoryCount < 3) {
+        return ['ok' => false, 'reason' => '新密碼需同時包含大寫、小寫、數字、符號中的至少三種類別。'];
+    }
+    return ['ok' => true, 'reason' => ''];
 }
 
 /**

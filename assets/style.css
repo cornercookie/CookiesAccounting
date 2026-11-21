@@ -618,4 +618,56 @@ table .receipt-col .meta {
   .recurring-card { margin: var(--space-5) 0; padding: var(--space-3); }
 }
 
+/* ---------- 匯入 CSV 明細記錄 ---------- */
+.import-form .field-full .meta {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+
+.import-result {
+  margin: var(--space-4) 0;
+  padding: var(--space-4);
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.import-result h2 {
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-lg);
+  color: var(--ink);
+}
+
+.import-error {
+  margin: var(--space-4) 0;
+  padding: var(--space-4);
+  background: var(--red-tint);
+  border: 1px solid var(--red);
+  border-radius: var(--radius);
+  color: var(--red-deep);
+}
+
+.import-error h2 {
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-lg);
+}
+
+.import-error-list {
+  margin: 0;
+  padding-left: var(--space-4);
+}
+
+.import-error-list li {
+  margin: 0 0 var(--space-2) 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+/* 手機版調整 */
+@media (max-width: 720px) {
+  .import-form .field-full .meta { font-size: var(--text-xs); }
+  .import-error-list li { font-size: var(--text-xs); }
+}
+
 

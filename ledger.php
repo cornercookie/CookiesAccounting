@@ -492,6 +492,9 @@ if (!empty($_SESSION['voice_played'])) {
                     </div>
                     <div style="display: flex; gap: 8px;">
                         <a href="./export_csv.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📥 匯出明細 CSV</a>
+                        <?php if ($canWrite): ?>
+                            <a href="./import_csv.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📤 匯入 CSV 明細</a>
+                        <?php endif; ?>
                         <a href="./export_pdf.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📄 匯出 PDF 月結單</a>
                         <?php if ($canWrite): ?>
                             <a href="./add_entry.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn primary">＋ 立傳票（新增記錄）</a>

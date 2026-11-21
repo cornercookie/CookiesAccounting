@@ -121,6 +121,20 @@ function ensureSchema(PDO $pdo): void
 SQL);
 
     $pdo->exec(<<<'SQL'
+    CREATE TABLE IF NOT EXISTS login_sessions (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id      INTEGER NOT NULL,
+        ip           TEXT    NOT NULL DEFAULT '',
+        user_agent   TEXT    NOT NULL DEFAULT '',
+        login_at     TEXT    NOT NULL,
+        is_first_seen INTEGER NOT NULL DEFAULT 1 CHECK (is_first_seen IN (0,1)),
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_login_sessions_user_id  ON login_sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_login_sessions_login_at ON login_sessions(login_at);
+SQL);
+
+    $pdo->exec(<<<'SQL'
     CREATE TABLE IF NOT EXISTS categories (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         name        TEXT    NOT NULL UNIQUE,                       -- 全站分類名稱唯一

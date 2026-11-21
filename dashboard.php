@@ -122,16 +122,27 @@ try {
                 <?php foreach ($ledgerSummaries as $ls): ?>
                     <?php
                     $lsBudget = (int) ($ls['monthly_budget_cents'] ?? 0);
-                    $lsBudgetRate = null;
+                    $lsBudgetStatus = null; // 'ok' | 'warn' | 'danger'
+                    $lsBudgetPercent = 0;
                     if ($isCurrentMonth && $lsBudget > 0) {
-                        $lsBudgetRate = (int) $ls['month_expense'] / $lsBudget;
+                        $lsMonthExpense = (int) ($ls['month_expense'] ?? 0);
+                        // 整數交叉相乘判定，避免浮點誤差（比照 ledger.php）：≥100% 危險、≥80% 警告
+                        if ($lsMonthExpense * 100 >= $lsBudget * 100) {
+                            $lsBudgetStatus = 'danger';
+                            $lsBudgetPercent = 100;
+                        } elseif ($lsMonthExpense * 100 >= $lsBudget * 80) {
+                            $lsBudgetStatus = 'warn';
+                            $lsBudgetPercent = (int) floor($lsMonthExpense * 100 / $lsBudget);
+                        } else {
+                            $lsBudgetStatus = 'ok';
+                        }
                     }
                     ?>
-                    <?php if ($lsBudgetRate !== null && $lsBudgetRate >= 0.8): ?>
-                    <div class="alert <?php echo $lsBudgetRate >= 1 ? 'danger' : 'warn'; ?>" role="status">
+                    <?php if ($lsBudgetStatus === 'warn' || $lsBudgetStatus === 'danger'): ?>
+                    <div class="alert <?php echo $lsBudgetStatus === 'danger' ? 'danger' : 'warn'; ?>" role="status">
                         <?php echo h($ls['name']); ?> 本月預算已使用
-                        <strong class="num"><?php echo h((string) ($lsBudgetRate >= 1 ? 100 : (int) ($lsBudgetRate * 100))); ?>%</strong>：
-                        <?php echo $lsBudgetRate >= 1 ? '已超過預算' : '接近預算上限'; ?>
+                        <strong class="num"><?php echo h((string) $lsBudgetPercent); ?>%</strong>：
+                        <?php echo $lsBudgetStatus === 'danger' ? '已超過預算' : '接近預算上限'; ?>
                         （預算 <?php echo h(formatCents($lsBudget)); ?> 元，已支出
                         <strong class="num"><?php echo h(formatCents((int) $ls['month_expense'])); ?></strong> 元）
                     </div>

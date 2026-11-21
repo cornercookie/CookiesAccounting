@@ -245,6 +245,42 @@ td.amt-neutral { color: var(--ink); font-weight: 700; }
     .report-table, .report-total { page-break-inside: avoid; }
 }
 
+/* 匯出 PDF 月結單頁面樣式（TCPDF 載入失敗時的列印優化 HTML 頁面）*/
+.pdf-report {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: var(--space-4);
+}
+.pdf-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+}
+.pdf-table th, .pdf-table td {
+    padding: 6px var(--space-3);
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+}
+.pdf-table th {
+    background: var(--ink);
+    color: var(--side-ink);
+    font-weight: 600;
+    font-size: var(--text-xs);
+    letter-spacing: 0.16em;
+}
+.pdf-total {
+    margin-top: var(--space-4);
+    padding: var(--space-4);
+    background: var(--paper-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+}
+.pdf-empty {
+    text-align: center;
+    padding: var(--space-8);
+    color: var(--ink-2);
+}
+
 /* 動作欄（直排雙按鈕） */
 .actions { display: flex; flex-direction: column; gap: var(--space-2); align-items: stretch; min-width: 112px; }
 
@@ -581,3 +617,5 @@ table .receipt-col .meta {
 @media (max-width: 720px) {
   .recurring-card { margin: var(--space-5) 0; padding: var(--space-3); }
 }
+
+

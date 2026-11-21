@@ -45,6 +45,23 @@ $stmt = $pdo->prepare('
 ');
 $stmt->execute([':user_id' => (int) $user['id'], ':msA' => $monthStart, ':meA' => $monthEnd, ':msB' => $monthStart, ':meB' => $monthEnd]);
 $ledgerSummaries = $stmt->fetchAll();
+
+// 全家跨帳本本月總覽（複用 $ledgerSummaries，不新增 SQL）
+$summaryError = false;
+$totalIncome = 0;
+$totalExpense = 0;
+$totalBalance = 0;
+
+try {
+    foreach ($ledgerSummaries as $ls) {
+        $totalIncome  += (int) ($ls['month_income']  ?? 0);
+        $totalExpense += (int) ($ls['month_expense'] ?? 0);
+    }
+    $totalBalance = $totalIncome - $totalExpense;
+} catch (Throwable $e) {
+    logError('跨帳本本月總覽加總失敗：' . $e->getMessage());
+    $summaryError = true;
+}
 ?>
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -169,6 +186,14 @@ $ledgerSummaries = $stmt->fetchAll();
                         </li>
                         <?php endforeach; ?>
                     </ul>
+                </div>
+                <?php endif; ?>
+
+                <?php if (!$summaryError && !empty($ledgerSummaries)): ?>
+                <div class="summary-total plates">
+                    <div class="plate"><small>全家本月總收入</small><div class="v">+<?php echo h(formatCents($totalIncome)); ?><small> 元</small></div></div>
+                    <div class="plate"><small>全家本月總支出</small><div class="v">-<?php echo h(formatCents($totalExpense)); ?><small> 元</small></div></div>
+                    <div class="plate"><small>全家本月總結餘</small><div class="v"><?php echo h($totalBalance >= 0 ? '+' : '') . h(formatCents($totalBalance)); ?><small> 元</small></div></div>
                 </div>
                 <?php endif; ?>
 

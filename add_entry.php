@@ -45,6 +45,7 @@ $members = $memberStmt->fetchAll();
 
 $amount    = '';
 $entryDate = (new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei')))->format('Y-m-d');
+$todayDate = (new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei')))->format('Y-m-d');
 $category  = '';
 $note      = '';
 $type      = 'expense';
@@ -303,7 +304,14 @@ function handleReceiptUpload(): string|false
 
                             <div class="field">
                                 <label for="entry_date" class="label">記帳日期</label>
-                                <input type="date" name="entry_date" id="entry_date" required class="input mono" value="<?php echo h($entryDate); ?>">
+                                <input type="date" name="entry_date" id="entry_date" required class="input mono"
+                                       value="<?php echo h($entryDate); ?>"
+                                       data-today="<?php echo h($todayDate); ?>">
+
+                                <div class="quick-date-wrapper">
+                                    <button type="button" class="quick-date-btn" data-offset="0">今天</button>
+                                    <button type="button" class="quick-date-btn" data-offset="-1">昨天</button>
+                                </div>
                             </div>
 
                             <div class="field">
@@ -544,6 +552,26 @@ function handleReceiptUpload(): string|false
                     }
                 });
             })();
+
+            // 快速日期按鈕：今天 / 昨天
+            (function () {
+                var input = document.getElementById('entry_date');
+                if (!input) return;
+
+                var today = input.dataset.today || '';
+                if (!today) return;
+
+                document.querySelectorAll('.quick-date-btn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        var offset = parseInt(btn.getAttribute('data-offset') || '0', 10);
+                        var d = new Date(today + 'T00:00:00');
+                        d.setDate(d.getDate() + offset); // 自動處理跨月/跨年
+                        var ymd = d.toISOString().slice(0, 10);
+                        input.value = ymd;
+                    });
+                });
+            })();
+
         })();
     </script>
 </body>

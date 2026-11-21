@@ -62,6 +62,7 @@ if ($entry === false) {
 
 $amount    = h((string) $entry['amount_cents'] === '' ? '' : (string) (intdiv((int) $entry['amount_cents'], 100) . (($entry['amount_cents'] % 100) !== 0 ? '.' . str_pad((string) (int) ($entry['amount_cents'] % 100), 2, '0', STR_PAD_LEFT) : ''));
 $entryDate = (string) $entry['entry_date'];
+$todayDate = (new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei')))->format('Y-m-d');
 $category  = (string) $entry['category'];
 $note      = (string) $entry['note'];
 $type      = (string) $entry['type'];
@@ -232,7 +233,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             <div class="field">
                                 <label for="entry_date" class="label">記帳日期</label>
-                                <input type="date" name="entry_date" id="entry_date" required class="input mono" value="<?php echo h($entryDate); ?>">
+                                <input type="date" name="entry_date" id="entry_date" required class="input mono"
+                                       value="<?php echo h($entryDate); ?>"
+                                       data-today="<?php echo h($todayDate); ?>">
+
+                                <div class="quick-date-wrapper">
+                                    <button type="button" class="quick-date-btn" data-offset="0">今天</button>
+                                    <button type="button" class="quick-date-btn" data-offset="-1">昨天</button>
+                                </div>
                             </div>
 
                             <div class="field">
@@ -308,41 +316,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         })();
 
         // 字級切換：Cookie 讀寫與 .font-large 切換
-            (function () {
-                var toggle = document.getElementById('fontSizeToggle');
-                if (!toggle) return;
+        (function () {
+            var toggle = document.getElementById('fontSizeToggle');
+            if (!toggle) return;
 
-                function getCookie(name) {
-                    var value = '; ' + document.cookie;
-                    var parts = value.split('; ' + name + '=');
-                    if (parts.length === 2) return parts.pop().split(';').shift();
-                    return null;
-                }
+            function getCookie(name) {
+                var value = '; ' + document.cookie;
+                var parts = value.split('; ' + name + '=');
+                if (parts.length === 2) return parts.pop().split(';').shift();
+                return null;
+            }
 
-                function setCookie(name, value, days) {
-                    var expires = new Date();
-                    expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000);
-                    document.cookie = name + '=' + value + '; expires=' + expires.toUTCString() + '; path=/; SameSite=Lax';
-                }
+            function setCookie(name, value, days) {
+                var expires = new Date();
+                expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000);
+                document.cookie = name + '=' + value + '; expires=' + expires.toUTCString() + '; path=/; SameSite=Lax';
+            }
 
-                var fontSize = getCookie('font_size');
-                if (fontSize === 'large') {
+            var fontSize = getCookie('font_size');
+            if (fontSize === 'large') {
+                document.body.classList.add('font-large');
+                toggle.textContent = '一般 A';
+            }
+
+            toggle.addEventListener('click', function () {
+                if (document.body.classList.contains('font-large')) {
+                    document.body.classList.remove('font-large');
+                    setCookie('font_size', 'normal', 90);
+                    toggle.textContent = '大字 A';
+                } else {
                     document.body.classList.add('font-large');
+                    setCookie('font_size', 'large', 90);
                     toggle.textContent = '一般 A';
                 }
+            });
+        })();
 
-                toggle.addEventListener('click', function () {
-                    if (document.body.classList.contains('font-large')) {
-                        document.body.classList.remove('font-large');
-                        setCookie('font_size', 'normal', 90);
-                        toggle.textContent = '大字 A';
-                    } else {
-                        document.body.classList.add('font-large');
-                        setCookie('font_size', 'large', 90);
-                        toggle.textContent = '一般 A';
-                    }
+        // 快速日期按鈕：今天 / 昨天
+        (function () {
+            var input = document.getElementById('entry_date');
+            if (!input) return;
+
+            var today = input.dataset.today || '';
+            if (!today) return;
+
+            document.querySelectorAll('.quick-date-btn').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    var offset = parseInt(btn.getAttribute('data-offset') || '0', 10);
+                    var d = new Date(today + 'T00:00:00');
+                    d.setDate(d.getDate() + offset);
+                    var ymd = d.toISOString().slice(0, 10);
+                    input.value = ymd;
                 });
-            })();
+            });
         })();
     </script>
 </body>

@@ -202,6 +202,7 @@ $users = $pdo->query('SELECT id, username, role, created_at FROM users ORDER BY 
                 <a class="nav-item" href="../change_password.php">變更密碼</a>
                 <p class="nav-h">後台</p>
                 <a class="nav-item active" href="./users.php">使用者管理</a>
+                <a class="nav-item" href="./category_management.php">分類管理</a>
                 <a class="nav-item" href="./ledgers.php">帳本管理</a>
                 <a class="nav-item" href="./audit_log.php">操作紀錄</a>
             </nav>

@@ -121,6 +121,21 @@ function ensureSchema(PDO $pdo): void
 SQL);
 
     $pdo->exec(<<<'SQL'
+    CREATE TABLE IF NOT EXISTS categories (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT    NOT NULL UNIQUE,                       -- 全站分類名稱唯一
+        is_active   INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+        ledger_id   INTEGER DEFAULT NULL,                          -- 全站共用，固定為 NULL
+        created_at  TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+        updated_at  TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+    );
+SQL);
+    $pdo->exec(<<<'SQL'
+    CREATE INDEX IF NOT EXISTS idx_categories_is_active ON categories(is_active);
+    CREATE INDEX IF NOT EXISTS idx_categories_name ON categories(name);
+SQL);
+
+    $pdo->exec(<<<'SQL'
     CREATE TABLE IF NOT EXISTS login_sessions (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id      INTEGER NOT NULL,

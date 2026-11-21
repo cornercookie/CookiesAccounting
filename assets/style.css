@@ -471,6 +471,21 @@ a:hover { text-decoration: underline; }
 .budget-meta { margin: var(--space-2) 0 0; font-size: var(--text-sm); color: var(--ink-2); }
 .budget-meta strong { color: var(--ink); }
 
+/* ---------- Budget banner（頁面頂部醒目橫幅） ---------- */
+.budget-banner {
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--amber);
+  border-radius: var(--radius);
+  background: var(--amber-tint);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  color: var(--amber);
+}
+.budget-banner.warn   { border-left-color: var(--amber); background: var(--amber-tint); color: var(--amber); }
+.budget-banner.danger { border-left-color: var(--red); background: var(--red-tint); color: var(--red); }
+.budget-banner strong { color: var(--ink); }
+.budget-banner .num   { font-family: var(--font-mono); font-size: var(--text-base); }
+
 .budget-form { margin-top: var(--space-3); border-top: 1px dashed var(--line); padding-top: var(--space-3); }
 .budget-form-label { display: block; font-size: var(--text-xs); color: var(--side-dim); margin-bottom: var(--space-2); }
 .budget-form-row { display: flex; gap: var(--space-2); }
@@ -483,6 +498,7 @@ a:hover { text-decoration: underline; }
 /* 手機版：側欄預算表單隨 .rail 隱藏，預算盒維持可讀 */
 @media (max-width: 720px) {
   .budget-box { padding: var(--space-3); }
+  .budget-banner { padding: var(--space-3); }
 }
 
 /* ---------- Receipt thumbnail（收據小圖） ---------- */

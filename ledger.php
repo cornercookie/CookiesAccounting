@@ -515,6 +515,16 @@ if (!empty($_SESSION['voice_played'])) {
                     <div class="plate net"><small><?php echo h($ymLabel); ?>結餘</small><div class="v"><?php echo h($balanceCents >= 0 ? '+' : '') . h(formatCents($balanceCents)); ?></div></div>
                 </div>
 
+                <?php
+                // 預算超支橫幅：僅當月且預算>0且支出≥80%時顯示（比照 dashboard.php 邏輯）
+                if ($budgetProgress !== null && in_array($budgetProgress['status'], ['warn', 'danger'], true)): ?>
+                <div class="budget-banner budget-banner-<?php echo h($budgetProgress['status']); ?>" role="alert">
+                    <strong><?php echo h($ledger['name']); ?></strong> 本月預算已使用 <strong class="num"><?php echo h((string) $budgetProgress['percent']); ?>%</strong>：
+                    <?php echo $budgetProgress['status'] === 'danger' ? '已超過預算' : '接近預算上限'; ?>
+                    （預算 <?php echo h(formatCents($budgetCents)); ?> 元，已支出 <strong class="num"><?php echo h(formatCents($expenseCents)); ?></strong> 元）
+                </div>
+                <?php endif; ?>
+
                 <?php if ($budgetProgress !== null): ?>
                     <?php
                         $barWidth = min(100, $budgetProgress['percent']); // 進度條寬度上限 100%

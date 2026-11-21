@@ -203,6 +203,29 @@ try {
                 </div>
                 <?php endif; ?>
 
+                <?php
+                // 預算超支橫幅：針對每個可存取帳本，僅當月且預算>0且支出≥80%時顯示
+                $budgetBanners = [];
+                foreach ($ledgerSummaries as $ls) {
+                    $lsBudget = (int) ($ls['monthly_budget_cents'] ?? 0);
+                    if ($isCurrentMonth && $lsBudget > 0) {
+                        $lsMonthExpense = (int) ($ls['month_expense'] ?? 0);
+                        if ($lsMonthExpense * 100 >= $lsBudget * 100) {
+                            $budgetBanners[] = ['name' => $ls['name'], 'status' => 'danger', 'percent' => 100, 'expense' => $lsMonthExpense, 'budget' => $lsBudget];
+                        } elseif ($lsMonthExpense * 100 >= $lsBudget * 80) {
+                            $budgetBanners[] = ['name' => $ls['name'], 'status' => 'warn', 'percent' => (int) floor($lsMonthExpense * 100 / $lsBudget), 'expense' => $lsMonthExpense, 'budget' => $lsBudget];
+                        }
+                    }
+                }
+                ?>
+                <?php foreach ($budgetBanners as $bb): ?>
+                <div class="budget-banner budget-banner-<?php echo h($bb['status']); ?>" role="alert">
+                    <strong><?php echo h($bb['name']); ?></strong> 本月預算已使用 <strong class="num"><?php echo h((string) $bb['percent']); ?>%</strong>：
+                    <?php echo $bb['status'] === 'danger' ? '已超過預算' : '接近預算上限'; ?>
+                    （預算 <?php echo h(formatCents($bb['budget'])); ?> 元，已支出 <strong class="num"><?php echo h(formatCents($bb['expense'])); ?></strong> 元）
+                </div>
+                <?php endforeach; ?>
+
                 <?php if (!$summaryError && !empty($ledgerSummaries)): ?>
                 <div class="summary-total plates">
                     <div class="plate"><small>全家本月總收入</small><div class="v">+<?php echo h(formatCents($totalIncome)); ?><small> 元</small></div></div>

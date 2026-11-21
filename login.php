@@ -47,6 +47,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['authed_at'] = time();
                 $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
                 logAudit('login', '', (int) $user['id'], (string) $user['username']);
+
+                // 登入異常通知：記錄登入來源並比對歷史 IP（Feature 14）
+                try {
+                    $ip       = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+                    $userAgentRaw = (string) ($_SERVER['HTTP_USER_AGENT'] ?? '');
+                    $userAgent = mb_substr($userAgentRaw, 0, 255);
+                    $loginAt  = date('Y-m-d H:i:s');
+
+                    // 若 IP 或 User-Agent 為空，不視為異常，不寫入紀錄也不顯示提醒
+                    if ($ip !== '' && $userAgent !== '') {
+                        // 90 天資料保留：清理過期紀錄（僅於登入成功後執行，不放入 getPdo()）
+                        $cutoff = date('Y-m-d H:i:s', strtotime('-90 days'));
+                        $pdo->prepare('DELETE FROM login_sessions WHERE login_at < :cutoff')
+                            ->execute([':cutoff' => $cutoff]);
+
+                        // 寫入本次登入來源
+                        $pdo->prepare(
+                            'INSERT INTO login_sessions (user_id, ip, user_agent, login_at, is_first_seen)
+                             VALUES (:user_id, :ip, :user_agent, :login_at, 1)'
+                        )->execute([
+                            ':user_id'   => (int) $user['id'],
+                            ':ip'        => $ip,
+                            ':user_agent'=> $userAgent,
+                            ':login_at'  => $loginAt,
+                        ]);
+
+                        // 比對歷史 IP，若為新來源則設定 session 提醒標記（僅以 IP 為主要判定）
+                        $histStmt = $pdo->prepare(
+                            'SELECT COUNT(*) AS cnt FROM login_sessions
+                             WHERE user_id = :user_id AND ip = :ip AND id <> :cur_id'
+                        );
+                        $histStmt->execute([
+                            ':user_id' => (int) $user['id'],
+                            ':ip'      => $ip,
+                            ':cur_id'  => (int) $pdo->lastInsertId(),
+                        ]);
+                        $histRow = $histStmt->fetch();
+                        if ($histRow !== false && (int) $histRow['cnt'] === 0) {
+                            $_SESSION['show_login_notice'] = 1;
+                            $_SESSION['login_notice_ip']   = $ip;
+                            $_SESSION['login_notice_at']   = $loginAt;
+                        }
+                    }
+                } catch (Throwable $e) {
+                    // 登入來源記錄失敗不阻擋登入，改寫 error.log
+                    logError('login anomaly notice failed: ' . $e->getMessage());
+                }
+
                 redirect('./dashboard.php');
             }
 

@@ -426,3 +426,71 @@ table .receipt-col .meta {
   .ai-actions .btn { width: 100%; }
   .ai-status { margin-left: 0; margin-top: var(--space-2); display: block; }
 }
+
+/* ---------- 字級切換：大字模式 ---------- */
+.font-size-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  cursor: pointer;
+  margin-left: var(--space-3);
+}
+.font-size-toggle:hover { background: var(--line); }
+.font-size-toggle:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+/* body 加上 .font-large 時，全站字級遞增 */
+.font-large {
+  font-size: 1.25rem;
+}
+.font-large .label,
+.font-large .input,
+.font-large .select,
+.font-large .textarea,
+.font-large .btn,
+.font-large .mono,
+.font-large table th,
+.font-large table td {
+  font-size: 1.125rem !important;
+}
+.font-large h1 { font-size: 2rem; }
+.font-large h3 { font-size: 1.5rem; }
+.font-large .num { font-size: 1.25rem; }
+.font-large .v { font-size: 2rem; }
+.font-large .budget-chip { font-size: 0.875rem; }
+
+/* ---------- 類別統計 SVG 圖表 ---------- */
+.category-stats { margin: var(--space-6) 0; }
+.category-stats h3 { margin: 0 0 var(--space-3) 0; font-size: var(--text-lg); }
+.category-chart { width: 100%; height: auto; max-height: 400px; }
+.category-chart rect { fill: var(--blue); }
+.category-chart text { font-family: var(--font-body); font-size: 11px; fill: var(--ink); }
+
+/* 手機版調整 */
+@media (max-width: 720px) {
+  .category-stats { margin: var(--space-5) 0; }
+  .category-chart { max-height: 300px; }
+}
+
+/* ---------- 重複記錄：固定每月開銷 ---------- */
+.recurring-card {
+  margin: var(--space-6) 0;
+  padding: var(--space-4);
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.recurring-card h3 {
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-lg);
+}
+
+/* 手機版調整 */
+@media (max-width: 720px) {
+  .recurring-card { margin: var(--space-5) 0; padding: var(--space-3); }
+}

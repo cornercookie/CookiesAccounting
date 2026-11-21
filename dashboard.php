@@ -18,6 +18,7 @@ $entryCount  = (int) $pdo->query('SELECT COUNT(*) FROM entries WHERE deleted = 0
 $today = new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei'));
 $monthStart = $today->format('Y-m-01');
 $monthEnd   = $today->format('Y-m-t');
+$isCurrentMonth = ($today->format('Y-m') === date('Y-m'));
 
 $stmt = $pdo->prepare('
     SELECT
@@ -75,6 +76,7 @@ $ledgerSummaries = $stmt->fetchAll();
             </nav>
             <div class="side-foot">
                 <div class="who"><b><?php echo h($user['username']); ?></b><span class="role-chip"><?php echo h($user['role']); ?></span></div>
+                <button type="button" class="font-size-toggle" id="fontSizeToggle" title="切換大字模式">大字 A</button>
                 <a class="logout" href="./logout.php">登出</a>
             </div>
         </aside>
@@ -86,8 +88,89 @@ $ledgerSummaries = $stmt->fetchAll();
                         <h1>儀表板</h1>
                         <p class="sub">歡迎回來，<?php echo h($user['username']); ?>；這是本家的傳票總帳。</p>
                     </div>
+                    <?php if (!empty($_SESSION['show_login_notice'])): ?>
+                    <div class="alert warn" role="alert">
+                        偵測到新登入來源：
+                        <strong class="num"><?php echo h((string) ($_SESSION['login_notice_ip'] ?? '')); ?></strong>，
+                        時間 <?php echo h((string) ($_SESSION['login_notice_at'] ?? '')); ?>，
+                        若非本人操作請立即變更密碼。
+                    </div>
+                    <?php unset($_SESSION['show_login_notice']); unset($_SESSION['login_notice_ip']); unset($_SESSION['login_notice_at']); endif; ?>
                     <a class="btn primary" href="./ledgers.php">前往帳本</a>
                 </div>
+
+                <?php foreach ($ledgerSummaries as $ls): ?>
+                    <?php
+                    $lsBudget = (int) ($ls['monthly_budget_cents'] ?? 0);
+                    $lsBudgetRate = null;
+                    if ($isCurrentMonth && $lsBudget > 0) {
+                        $lsBudgetRate = (int) $ls['month_expense'] / $lsBudget;
+                    }
+                    ?>
+                    <?php if ($lsBudgetRate !== null && $lsBudgetRate >= 0.8): ?>
+                    <div class="alert <?php echo $lsBudgetRate >= 1 ? 'danger' : 'warn'; ?>" role="status">
+                        <?php echo h($ls['name']); ?> 本月預算已使用
+                        <strong class="num"><?php echo h((string) ($lsBudgetRate >= 1 ? 100 : (int) ($lsBudgetRate * 100))); ?>%</strong>：
+                        <?php echo $lsBudgetRate >= 1 ? '已超過預算' : '接近預算上限'; ?>
+                        （預算 <?php echo h(formatCents($lsBudget)); ?> 元，已支出
+                        <strong class="num"><?php echo h(formatCents((int) $ls['month_expense'])); ?></strong> 元）
+                    </div>
+                    <?php endif; ?>
+                <?php endforeach; ?>
+
+                <!-- 重複記錄登入提醒（Feature 11） -->
+                <?php
+                $recurringReminders = [];
+                foreach ($ledgerSummaries as $ls) {
+                    $recStmt = $pdo->prepare('
+                        SELECT re.id, re.name, re.amount_cents, re.type, re.category, re.next_due_date
+                        FROM recurring_entries re
+                        WHERE re.ledger_id = :ledger_id
+                          AND re.is_active = 1
+                    ');
+                    $recStmt->execute([':ledger_id' => (int) $ls['id']]);
+                    while ($rec = $recStmt->fetch()) {
+                        // 檢查本月是否已有來源自該重複記錄的 entries
+                        $genStmt = $pdo->prepare('
+                            SELECT COUNT(*) AS cnt FROM entries
+                            WHERE recurring_source_id = :recurring_id
+                              AND entry_date BETWEEN :ms AND :me
+                        ');
+                        $genStmt->execute([
+                            ':recurring_id' => (int) $rec['id'],
+                            ':ms' => $monthStart,
+                            ':me' => $monthEnd,
+                        ]);
+                        $genRow = $genStmt->fetch();
+                        if ($genRow === false || (int) $genRow['cnt'] === 0) {
+                            $recurringReminders[] = [
+                                'ledger_name' => $ls['name'],
+                                'recurring_name' => $rec['name'],
+                                'amount_cents' => (int) $rec['amount_cents'],
+                                'type' => $rec['type'],
+                                'next_due_date' => $rec['next_due_date'],
+                                'ledger_id' => (int) $ls['id'],
+                            ];
+                        }
+                    }
+                }
+                ?>
+                <?php if (!empty($recurringReminders)): ?>
+                <div class="alert warn" role="status">
+                    <strong>有 <?php echo h((string) count($recurringReminders)); ?> 筆固定開銷尚未記帳：</strong>
+                    <ul style="margin: var(--space-2) 0 0 var(--space-4); padding-left: var(--space-4);">
+                        <?php foreach ($recurringReminders as $rem): ?>
+                        <li>
+                            <?php echo h($rem['ledger_name']); ?>：「<?php echo h($rem['recurring_name']); ?>」
+                            （<?php echo h($rem['type'] === 'income' ? '收入' : '支出'); ?>
+                            <?php echo h(formatCents($rem['amount_cents'])); ?> 元，
+                            下次預計 <?php echo h($rem['next_due_date']); ?>）
+                            <a href="./ledger.php?ledger_id=<?php echo h((string) $rem['ledger_id']); ?>" class="btn secondary sm" style="margin-left: var(--space-2);">立即記一筆</a>
+                        </li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+                <?php endif; ?>
 
                 <p class="summary-h">各帳本 · 本月收支</p>
                 <?php if ($ledgerSummaries): ?>
@@ -147,6 +230,53 @@ $ledgerSummaries = $stmt->fetchAll();
                     <p class="empty">目前沒有可存取的帳本。<a href="./ledgers.php">前往帳本列表</a>建立一本。</p>
                 <?php endif; ?>
 
+                <?php if ($ledgerSummaries): ?>
+                <p class="summary-h">本月各成員記帳進度</p>
+                <div class="table-wrap">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>帳本</th>
+                                <th>成員</th>
+                                <th class="num">本月記錄數</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($ledgerSummaries as $ls): ?>
+                                <?php
+                                $memberStmt = $pdo->prepare('
+                                    SELECT u.username, COALESCE(COUNT(e.id), 0) AS entry_count
+                                    FROM ledger_access la
+                                    INNER JOIN users u ON u.id = la.user_id
+                                    LEFT JOIN entries e
+                                        ON e.ledger_id = la.ledger_id
+                                       AND e.user_id = la.user_id
+                                       AND e.deleted = 0
+                                       AND e.entry_date BETWEEN :ms AND :me
+                                    WHERE la.ledger_id = :ledger_id
+                                    GROUP BY u.id, u.username
+                                    ORDER BY u.username
+                                ');
+                                $memberStmt->execute([
+                                    ':ledger_id' => (int) $ls['id'],
+                                    ':ms' => $monthStart,
+                                    ':me' => $monthEnd,
+                                ]);
+                                $membersProgress = $memberStmt->fetchAll();
+                                ?>
+                                <?php foreach ($membersProgress as $mp): ?>
+                                    <tr>
+                                        <td><?php echo h($ls['name']); ?></td>
+                                        <td><?php echo h($mp['username']); ?></td>
+                                        <td class="num"><?php echo h((string) $mp['entry_count']); ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <?php endif; ?>
+
                 <hr class="tear">
 
                 <p class="summary-h">記帳規模</p>
@@ -187,5 +317,44 @@ $ledgerSummaries = $stmt->fetchAll();
             </main>
         </div>
     </div>
+
+    <script>
+        // 字級切換：Cookie 讀寫與 .font-large 切換
+        (function () {
+            var toggle = document.getElementById('fontSizeToggle');
+            if (!toggle) return;
+
+            function getCookie(name) {
+                var value = '; ' + document.cookie;
+                var parts = value.split('; ' + name + '=');
+                if (parts.length === 2) return parts.pop().split(';').shift();
+                return null;
+            }
+
+            function setCookie(name, value, days) {
+                var expires = new Date();
+                expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000);
+                document.cookie = name + '=' + value + '; expires=' + expires.toUTCString() + '; path=/; SameSite=Lax';
+            }
+
+            var fontSize = getCookie('font_size');
+            if (fontSize === 'large') {
+                document.body.classList.add('font-large');
+                toggle.textContent = '一般 A';
+            }
+
+            toggle.addEventListener('click', function () {
+                if (document.body.classList.contains('font-large')) {
+                    document.body.classList.remove('font-large');
+                    setCookie('font_size', 'normal', 90);
+                    toggle.textContent = '大字 A';
+                } else {
+                    document.body.classList.add('font-large');
+                    setCookie('font_size', 'large', 90);
+                    toggle.textContent = '一般 A';
+                }
+            });
+        })();
+    </script>
 </body>
 </html>

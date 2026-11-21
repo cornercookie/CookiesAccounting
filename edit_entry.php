@@ -76,7 +76,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $amount    = trim($_POST['amount'] ?? '');
         $entryDate = trim($_POST['entry_date'] ?? '');
-        $category  = trim($_POST['category'] ?? '');
+        $categoryPreset = trim($_POST['category_preset'] ?? '');
+        if ($categoryPreset !== '' && $categoryPreset !== '__custom__') {
+            $category = $categoryPreset;
+        } else {
+            $category = trim($_POST['category'] ?? '');
+        }
         $note      = trim($_POST['note'] ?? '');
         $type      = $_POST['type'] ?? '';
 
@@ -86,6 +91,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = '請選擇有效的記帳日期';
         } elseif ($category === '') {
             $error = '請輸入類別';
+        } elseif (mb_strlen($category, 'UTF-8') > 50) {
+            $error = '類別長度超過 50 字元限制，請縮短後再提交。';
         } elseif (!in_array($type, ['income', 'expense'], true)) {
             $error = '類別必須為收入或支出';
         } else {
@@ -130,6 +137,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ':ledger_id'   => $ledgerId,
                 ]);
                 logAudit('entry_edit', 'entry #' . $entryId . ' · ledger ' . $ledgerId . ' · ' . $type . ' · ' . formatCents($cents));
+                $_SESSION['voice_played'] = 1;
+                $_SESSION['voice_text'] = ($type === 'income' ? '收入' : '支出') . ' ' . formatCents($cents) . ' 元已更新';
                 redirect('./ledger.php?ledger_id=' . $ledgerId . '&success=1&msg=' . urlencode('記錄已更新。'));
             }
         }
@@ -175,6 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             <div class="side-foot">
                 <div class="who"><b><?php echo h($user['username']); ?></b><span class="role-chip"><?php echo h($user['role']); ?></span></div>
+                <button type="button" class="font-size-toggle" id="fontSizeToggle" title="切換大字模式">大字 A</button>
                 <a class="logout" href="./logout.php">登出</a>
             </div>
         </aside>
@@ -235,7 +245,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             <div class="field field-full">
                                 <label for="category" class="label">類別</label>
-                                <input type="text" name="category" id="category" required class="input" value="<?php echo h($category); ?>" placeholder="例如 餐費、薪資">
+                                <select name="category_preset" id="category_preset" class="select">
+                                    <option value=""<?php echo $category === '' ? ' selected' : ''; ?>>選擇常用分類</option>
+                                    <option value="餐費"<?php echo $category === '餐費' ? ' selected' : ''; ?>>餐費</option>
+                                    <option value="交通"<?php echo $category === '交通' ? ' selected' : ''; ?>>交通</option>
+                                    <option value="娛樂"<?php echo $category === '娛樂' ? ' selected' : ''; ?>>娛樂</option>
+                                    <option value="醫療"<?php echo $category === '醫療' ? ' selected' : ''; ?>>醫療</option>
+                                    <option value="薪資"<?php echo $category === '薪資' ? ' selected' : ''; ?>>薪資</option>
+                                    <option value="水電瓦斯"<?php echo $category === '水電瓦斯' ? ' selected' : ''; ?>>水電瓦斯</option>
+                                    <option value="日用品"<?php echo $category === '日用品' ? ' selected' : ''; ?>>日用品</option>
+                                    <option value="其他"<?php echo $category === '其他' ? ' selected' : ''; ?>>其他</option>
+                                    <option value="__custom__"<?php echo !in_array($category, ['', '餐費', '交通', '娛樂', '醫療', '薪資', '水電瓦斯', '日用品', '其他'], true) ? ' selected' : ''; ?>>自訂分類</option>
+                                </select>
+                                <input type="text" name="category" id="category" required class="input" value="<?php echo h($category); ?>" placeholder="例如 餐費、薪資" autocomplete="off">
+                                <p class="meta" style="margin-top: var(--space-2);">可從常用分類選擇，或自行輸入分類（最多 50 字元）。</p>
                             </div>
 
                             <div class="field field-full">
@@ -258,5 +281,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </main>
         </div>
     </div>
+
+    <script>
+        // 類別欄位：下拉選單與自訂輸入框互動
+        (function () {
+            var presetSelect = document.getElementById('category_preset');
+            var categoryInput = document.getElementById('category');
+
+            if (!presetSelect || !categoryInput) return;
+
+            function updateCategoryInput() {
+                var val = presetSelect.value;
+                if (val === '__custom__') {
+                    categoryInput.disabled = false;
+                    categoryInput.focus();
+                } else if (val !== '') {
+                    categoryInput.value = val;
+                    categoryInput.disabled = true;
+                } else {
+                    categoryInput.disabled = false;
+                }
+            }
+
+            presetSelect.addEventListener('change', updateCategoryInput);
+            updateCategoryInput();
+        })();
+
+        // 字級切換：Cookie 讀寫與 .font-large 切換
+            (function () {
+                var toggle = document.getElementById('fontSizeToggle');
+                if (!toggle) return;
+
+                function getCookie(name) {
+                    var value = '; ' + document.cookie;
+                    var parts = value.split('; ' + name + '=');
+                    if (parts.length === 2) return parts.pop().split(';').shift();
+                    return null;
+                }
+
+                function setCookie(name, value, days) {
+                    var expires = new Date();
+                    expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000);
+                    document.cookie = name + '=' + value + '; expires=' + expires.toUTCString() + '; path=/; SameSite=Lax';
+                }
+
+                var fontSize = getCookie('font_size');
+                if (fontSize === 'large') {
+                    document.body.classList.add('font-large');
+                    toggle.textContent = '一般 A';
+                }
+
+                toggle.addEventListener('click', function () {
+                    if (document.body.classList.contains('font-large')) {
+                        document.body.classList.remove('font-large');
+                        setCookie('font_size', 'normal', 90);
+                        toggle.textContent = '大字 A';
+                    } else {
+                        document.body.classList.add('font-large');
+                        setCookie('font_size', 'large', 90);
+                        toggle.textContent = '一般 A';
+                    }
+                });
+            })();
+        })();
+    </script>
 </body>
 </html>

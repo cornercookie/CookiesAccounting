@@ -67,6 +67,191 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
     redirect('./ledger.php?ledger_id=' . $ledgerId . '&success=1&msg=' . urlencode('已更新每月預算。'));
 }
 
+// 重複記錄：建立（Feature 11）
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '') === 'create_recurring') {
+    if (!checkCsrf($_POST['csrf_token'] ?? '')) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('安全驗證失敗，請重新操作。'));
+    }
+    if ($accessRole !== 'owner' && $accessRole !== 'admin') {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('僅帳本擁有者或管理員可建立重複記錄。'));
+    }
+    $name      = trim($_POST['name'] ?? '');
+    $amountRaw = trim($_POST['amount'] ?? '');
+    $category  = trim($_POST['category'] ?? '');
+    $type      = $_POST['type'] ?? '';
+    $startDate = trim($_POST['start_date'] ?? '');
+    $nextDue   = trim($_POST['next_due_date'] ?? '');
+
+    if ($name === '') {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('請輸入重複記錄名稱。'));
+    }
+    $cents = toCents($amountRaw);
+    if ($cents === false || $cents <= 0) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('金額必須為大於 0 的正整數分。'));
+    }
+    if (!in_array($type, ['income', 'expense'], true)) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('類別必須為收入或支出。'));
+    }
+    if (!isValidDate($startDate) || !isValidDate($nextDue)) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('起始日期與下次預計日期必須為有效日期。'));
+    }
+    if (mb_strlen($category, 'UTF-8') > 50) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('類別長度超過 50 字元限制。'));
+    }
+
+    $stmt = $pdo->prepare('
+        INSERT INTO recurring_entries
+            (ledger_id, user_id, name, amount_cents, type, category, start_date, next_due_date, is_active)
+        VALUES
+            (:ledger_id, :user_id, :name, :amount_cents, :type, :category, :start_date, :next_due_date, 1)
+    ');
+    $stmt->execute([
+        ':ledger_id'   => $ledgerId,
+        ':user_id'     => $userId,
+        ':name'        => $name,
+        ':amount_cents'=> $cents,
+        ':type'        => $type,
+        ':category'    => $category,
+        ':start_date'  => $startDate,
+        ':next_due_date'=> $nextDue,
+    ]);
+    $recurringId = (int) $pdo->lastInsertId();
+    logAudit('recurring_create', 'recurring_id=' . $recurringId . ' ledger_id=' . $ledgerId . ' name=' . $name . ' amount=' . formatCents($cents));
+    redirect('./ledger.php?ledger_id=' . $ledgerId . '&success=1&msg=' . urlencode('重複記錄已建立。'));
+}
+
+// 重複記錄：編輯（Feature 11）
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '') === 'edit_recurring') {
+    if (!checkCsrf($_POST['csrf_token'] ?? '')) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('安全驗證失敗，請重新操作。'));
+    }
+    $recurringId = filter_var($_POST['recurring_id'] ?? '', FILTER_VALIDATE_INT);
+    if ($recurringId === false || $recurringId === null) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('無效的重複記錄編號。'));
+    }
+    // 先驗證使用者對該帳本的存取權，再驗證是否為建立者或 owner/admin
+    $ownStmt = $pdo->prepare('SELECT user_id FROM recurring_entries WHERE id = :id AND ledger_id = :ledger_id LIMIT 1');
+    $ownStmt->execute([':id' => $recurringId, ':ledger_id' => $ledgerId]);
+    $ownRow = $ownStmt->fetch();
+    if ($ownRow === false) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('找不到該重複記錄。'));
+    }
+    $isOwner = ((int) $ownRow['user_id'] === $userId);
+    if (!$isOwner && $accessRole !== 'owner' && $accessRole !== 'admin') {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('僅建立者或帳本擁有者可編輯重複記錄。'));
+    }
+
+    $name      = trim($_POST['name'] ?? '');
+    $amountRaw = trim($_POST['amount'] ?? '');
+    $category  = trim($_POST['category'] ?? '');
+    $type      = $_POST['type'] ?? '';
+    $startDate = trim($_POST['start_date'] ?? '');
+    $nextDue   = trim($_POST['next_due_date'] ?? '');
+
+    if ($name === '') {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('請輸入重複記錄名稱。'));
+    }
+    $cents = toCents($amountRaw);
+    if ($cents === false || $cents <= 0) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('金額必須為大於 0 的正整數分。'));
+    }
+    if (!in_array($type, ['income', 'expense'], true)) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('類別必須為收入或支出。'));
+    }
+    if (!isValidDate($startDate) || !isValidDate($nextDue)) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('起始日期與下次預計日期必須為有效日期。'));
+    }
+    if (mb_strlen($category, 'UTF-8') > 50) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('類別長度超過 50 字元限制。'));
+    }
+
+    $stmt = $pdo->prepare('
+        UPDATE recurring_entries
+        SET name = :name, amount_cents = :amount_cents, type = :type, category = :category,
+            start_date = :start_date, next_due_date = :next_due_date, updated_at = datetime('now', 'localtime')
+        WHERE id = :id AND ledger_id = :ledger_id
+    ');
+    $stmt->execute([
+        ':name'        => $name,
+        ':amount_cents'=> $cents,
+        ':type'        => $type,
+        ':category'    => $category,
+        ':start_date'  => $startDate,
+        ':next_due_date'=> $nextDue,
+        ':id'          => $recurringId,
+        ':ledger_id'   => $ledgerId,
+    ]);
+    logAudit('recurring_edit', 'recurring_id=' . $recurringId . ' ledger_id=' . $ledgerId);
+    redirect('./ledger.php?ledger_id=' . $ledgerId . '&success=1&msg=' . urlencode('重複記錄已更新。'));
+}
+
+// 重複記錄：停用（Feature 11）
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '') === 'toggle_recurring') {
+    if (!checkCsrf($_POST['csrf_token'] ?? '')) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('安全驗證失敗，請重新操作。'));
+    }
+    $recurringId = filter_var($_POST['recurring_id'] ?? '', FILTER_VALIDATE_INT);
+    if ($recurringId === false || $recurringId === null) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('無效的重複記錄編號。'));
+    }
+    $ownStmt = $pdo->prepare('SELECT user_id FROM recurring_entries WHERE id = :id AND ledger_id = :ledger_id LIMIT 1');
+    $ownStmt->execute([':id' => $recurringId, ':ledger_id' => $ledgerId]);
+    $ownRow = $ownStmt->fetch();
+    if ($ownRow === false) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('找不到該重複記錄。'));
+    }
+    $isOwner = ((int) $ownRow['user_id'] === $userId);
+    if (!$isOwner && $accessRole !== 'owner' && $accessRole !== 'admin') {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('僅建立者或帳本擁有者可停用重複記錄。'));
+    }
+
+    $stmt = $pdo->prepare('UPDATE recurring_entries SET is_active = 0, updated_at = datetime('now', 'localtime') WHERE id = :id AND ledger_id = :ledger_id');
+    $stmt->execute([':id' => $recurringId, ':ledger_id' => $ledgerId]);
+    logAudit('recurring_toggle', 'recurring_id=' . $recurringId . ' ledger_id=' . $ledgerId . ' action=disable');
+    redirect('./ledger.php?ledger_id=' . $ledgerId . '&success=1&msg=' . urlencode('重複記錄已停用。'));
+}
+
+// 重複記錄：立即記一筆（Feature 11）
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '') === 'generate_recurring') {
+    if (!checkCsrf($_POST['csrf_token'] ?? '')) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('安全驗證失敗，請重新操作。'));
+    }
+    $recurringId = filter_var($_POST['recurring_id'] ?? '', FILTER_VALIDATE_INT);
+    if ($recurringId === false || $recurringId === null) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('無效的重複記錄編號。'));
+    }
+    // 驗證使用者對該帳本的存取權（ledger_access 已在開頭驗證，這裡再確認 recurring_entries 歸屬）
+    $ownStmt = $pdo->prepare('SELECT user_id, amount_cents, type, category, name FROM recurring_entries WHERE id = :id AND ledger_id = :ledger_id AND is_active = 1 LIMIT 1');
+    $ownStmt->execute([':id' => $recurringId, ':ledger_id' => $ledgerId]);
+    $recurring = $ownStmt->fetch();
+    if ($recurring === false) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('找不到該啟用中的重複記錄。'));
+    }
+
+    $entryDate = $today->format('Y-m-d');
+    $stmt = $pdo->prepare('
+        INSERT INTO entries
+            (ledger_id, user_id, amount_cents, type, category, entry_date, note, receipt_path, deleted, recurring_source_id)
+        VALUES
+            (:ledger_id, :user_id, :amount_cents, :type, :category, :entry_date, :note, '', 0, :recurring_source_id)
+    ');
+    $stmt->execute([
+        ':ledger_id'       => $ledgerId,
+        ':user_id'         => $userId,
+        ':amount_cents'    => (int) $recurring['amount_cents'],
+        ':type'            => $recurring['type'],
+        ':category'        => $recurring['category'],
+        ':entry_date'      => $entryDate,
+        ':note'            => '來自重複記錄：' . $recurring['name'],
+        ':recurring_source_id'=> $recurringId,
+    ]);
+    $entryId = (int) $pdo->lastInsertId();
+    logAudit('recurring_generate', 'entry_id=' . $entryId . ' recurring_id=' . $recurringId . ' ledger_id=' . $ledgerId);
+    $_SESSION['voice_played'] = 1;
+    $_SESSION['voice_text'] = ($recurring['type'] === 'income' ? '收入' : '支出') . ' ' . formatCents((int) $recurring['amount_cents']) . ' 元已儲存';
+    redirect('./ledger.php?ledger_id=' . $ledgerId . '&success=1&msg=' . urlencode('已從重複記錄產生一筆記錄。'));
+}
+
 // 本帳查詢參數：月份（預設本月 Asia/Taipei）、類別、類型、頁碼——皆為唯讀查詢
 $today = new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei'));
 $ymRaw = $_GET['ym'] ?? '';
@@ -134,6 +319,21 @@ if ($budgetCents > 0) {
     $bDollars = intdiv($budgetCents, 100);
     $bCents   = $budgetCents % 100;
     $budgetInputValue = (string) $bDollars . ($bCents !== 0 ? '.' . str_pad((string) $bCents, 2, '0', STR_PAD_LEFT) : '');
+}
+
+// 重複記錄列表：查詢本帳本啟用中的重複記錄（Feature 11）
+$recurringList = [];
+if ($accessRole === 'owner' || $accessRole === 'admin' || $accessRole === 'member') {
+    $recStmt = $pdo->prepare('
+        SELECT re.id, re.name, re.amount_cents, re.type, re.category, re.start_date, re.next_due_date, re.is_active, re.created_at, u.username AS creator
+        FROM recurring_entries re
+        INNER JOIN users u ON u.id = re.user_id
+        WHERE re.ledger_id = :ledger_id
+          AND re.is_active = 1
+        ORDER BY re.next_due_date ASC, re.id DESC
+    ');
+    $recStmt->execute([':ledger_id' => $ledgerId]);
+    $recurringList = $recStmt->fetchAll();
 }
 
 // 條件子句（預備陳述式，具名佔位符）
@@ -213,6 +413,14 @@ if ($voucherId !== false && $voucherId !== null && $voucherId > 0 && in_array($v
     $voucherNo = ($voucherType === 'income' ? '收-' : '支-') . str_pad((string) $voucherId, 3, '0', STR_PAD_LEFT);
     $voucherMsg = '傳票 ' . $voucherNo . ' 已立，請核對。';
 }
+
+// 語音確認回饋：檢查 session 標記，若為 1 則準備語音內容並隨即清除標記
+$voiceText = '';
+if (!empty($_SESSION['voice_played'])) {
+    $voiceText = (string) ($_SESSION['voice_text'] ?? '');
+    unset($_SESSION['voice_played']);
+    unset($_SESSION['voice_text']);
+}
 ?>
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -221,6 +429,19 @@ if ($voucherId !== false && $voucherId !== null && $voucherId > 0 && in_array($v
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>帳本詳情 - 全家人記帳系統</title>
     <link rel="stylesheet" href="./assets/style.css?v=20261115-8">
+    <style>
+        @media print {
+            .side, .nav, .ctr-actions, .quick, .budget-form, .filters, .pager, .font-size-toggle {
+                display: none !important;
+            }
+            .main { margin: 0; padding: 0; }
+            .sheet { width: 100%; max-width: 100%; }
+            .plates, .table-wrap { page-break-inside: avoid; }
+            body { background: #fff; color: #000; }
+            .plate { border: 1px solid #000; }
+            .v { color: #000; }
+        }
+    </style>
 </head>
 <body>
     <div class="app">
@@ -253,6 +474,7 @@ if ($voucherId !== false && $voucherId !== null && $voucherId > 0 && in_array($v
             </div>
             <div class="side-foot">
                 <div class="who"><b><?php echo h($user['username']); ?></b><span class="role-chip"><?php echo h($user['role']); ?></span></div>
+                <button type="button" class="font-size-toggle" id="fontSizeToggle" title="切換大字模式">大字 A</button>
                 <a class="logout" href="./logout.php">登出</a>
             </div>
         </aside>
@@ -314,6 +536,14 @@ if ($voucherId !== false && $voucherId !== null && $voucherId > 0 && in_array($v
                     </div>
                 <?php endif; ?>
 
+                <?php if ($budgetProgress !== null && in_array($budgetProgress['status'], ['warn', 'danger'], true)): ?>
+                <div class="alert <?php echo $budgetProgress['status'] === 'danger' ? 'danger' : 'warn'; ?>" role="status">
+                    <?php echo h($ledger['name']); ?> 本月預算已使用
+                    <strong class="num"><?php echo h((string) $budgetProgress['percent']); ?>%</strong>：
+                    <?php echo $budgetProgress['status'] === 'danger' ? '已超過預算' : '接近預算上限'; ?>
+                </div>
+                <?php endif; ?>
+
                 <?php if ($accessRole === 'owner'): ?>
                     <form method="POST" action="./ledger.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="budget-form">
                         <label class="budget-form-label" for="monthly_budget">每月預算（元，清空即取消）</label>
@@ -325,6 +555,98 @@ if ($voucherId !== false && $voucherId !== null && $voucherId > 0 && in_array($v
                         <input type="hidden" name="action" value="set_budget">
                         <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
                     </form>
+                <?php endif; ?>
+
+                <!-- 重複記錄：固定每月開銷（Feature 11） -->
+                <?php if ($accessRole === 'owner' || $accessRole === 'admin'): ?>
+                <div class="recurring-card">
+                    <h3>建立重複記錄</h3>
+                    <form method="POST" action="./ledger.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="form" enctype="multipart/form-data">
+                        <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
+                        <input type="hidden" name="action" value="create_recurring">
+                        <div class="form-grid">
+                            <div class="field field-full">
+                                <label for="recurring_name" class="label">名稱</label>
+                                <input type="text" name="name" id="recurring_name" required class="input" placeholder="例如 水費、電費、房租">
+                            </div>
+                            <div class="field">
+                                <label for="recurring_amount" class="label">金額（元）</label>
+                                <input type="text" name="amount" id="recurring_amount" required class="input mono" inputmode="decimal" pattern="\d+(\.\d{1,2})?" placeholder="例如 100 或 100.50">
+                            </div>
+                            <div class="field">
+                                <label for="recurring_type" class="label">類型</label>
+                                <select name="type" id="recurring_type" class="select">
+                                    <option value="expense">支出聯（藍）</option>
+                                    <option value="income">收入聯（紅）</option>
+                                </select>
+                            </div>
+                            <div class="field field-full">
+                                <label for="recurring_category" class="label">類別</label>
+                                <input type="text" name="category" id="recurring_category" class="input" placeholder="例如 水電瓦斯">
+                            </div>
+                            <div class="field">
+                                <label for="recurring_start_date" class="label">起始日期</label>
+                                <input type="date" name="start_date" id="recurring_start_date" required class="input mono" value="<?php echo h($today->format('Y-m-d')); ?>">
+                            </div>
+                            <div class="field">
+                                <label for="recurring_next_due" class="label">下次預計記錄日期</label>
+                                <input type="date" name="next_due_date" id="recurring_next_due" required class="input mono" value="<?php echo h($today->modify('+1 month')->format('Y-m-d')); ?>">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn primary">建立重複記錄</button>
+                    </form>
+                </div>
+                <?php endif; ?>
+
+                <?php if (!empty($recurringList)): ?>
+                <div class="recurring-card">
+                    <h3>固定開銷列表</h3>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>名稱</th>
+                                <th class="num">金額</th>
+                                <th>類別</th>
+                                <th>類型</th>
+                                <th class="num">下次預計日期</th>
+                                <th class="ctr">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($recurringList as $rec): ?>
+                            <tr>
+                                <td><?php echo h($rec['name']); ?></td>
+                                <td class="num <?php echo $rec['type'] === 'income' ? 'amt-in' : 'amt-out'; ?>"><?php echo h($rec['type'] === 'income' ? '+' : '-') . h(formatCents((int) $rec['amount_cents'])); ?></td>
+                                <td><?php echo h($rec['category']); ?></td>
+                                <td><?php echo h($rec['type'] === 'income' ? '收入' : '支出'); ?></td>
+                                <td class="num mono"><?php echo h($rec['next_due_date']); ?></td>
+                                <td class="ctr">
+                                    <?php $isRecurringOwner = ((int) $rec['user_id'] === $userId); ?>
+                                    <?php if ($isRecurringOwner || $accessRole === 'owner' || $accessRole === 'admin'): ?>
+                                    <div class="ctr-actions">
+                                        <button type="button" class="btn secondary sm" onclick="openEditRecurring(<?php echo (int) $rec['id']; ?>, '<?php echo h($rec['name']); ?>', '<?php echo h((string) $rec['amount_cents']); ?>', '<?php echo h($rec['type']); ?>', '<?php echo h($rec['category']); ?>', '<?php echo h($rec['start_date']); ?>', '<?php echo h($rec['next_due_date']); ?>');">編輯</button>
+                                        <form method="POST" action="./ledger.php?ledger_id=<?php echo h((string) $ledgerId); ?>" onsubmit="return confirm('確定要停用這個重複記錄嗎？');" style="display:inline;">
+                                            <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
+                                            <input type="hidden" name="action" value="toggle_recurring">
+                                            <input type="hidden" name="recurring_id" value="<?php echo h((string) $rec['id']); ?>">
+                                            <button type="submit" class="btn danger sm">停用</button>
+                                        </form>
+                                        <form method="POST" action="./ledger.php?ledger_id=<?php echo h((string) $ledgerId); ?>" style="display:inline;">
+                                            <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
+                                            <input type="hidden" name="action" value="generate_recurring">
+                                            <input type="hidden" name="recurring_id" value="<?php echo h((string) $rec['id']); ?>">
+                                            <button type="submit" class="btn primary sm">立即記一筆</button>
+                                        </form>
+                                    </div>
+                                    <?php else: ?>
+                                    <span class="meta">檢視者</span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
                 <?php endif; ?>
 
                 <form method="GET" action="./ledger.php" class="filters" aria-label="查帳篩選">
@@ -353,6 +675,63 @@ if ($voucherId !== false && $voucherId !== null && $voucherId > 0 && in_array($v
                     <button type="submit" class="btn primary sm">查帳</button>
                     <a class="btn secondary sm" href="./ledger.php?ledger_id=<?php echo h((string) $ledgerId); ?>">清除</a>
                 </form>
+
+                <?php
+                // 類別統計 SVG 圖表：本月各類別支出佔比
+                $categoryStats = [];
+                $categoryTotalCents = 0;
+                if (!$isFiltered && $typeSel !== 'income') {
+                    $catStmt = $pdo->prepare('
+                        SELECT e.category, SUM(e.amount_cents) AS total_cents
+                        FROM entries e
+                        INNER JOIN ledger_access la ON la.ledger_id = e.ledger_id AND la.user_id = :user_id
+                        WHERE e.ledger_id = :ledger_id
+                          AND e.deleted = 0
+                          AND e.type = :type
+                          AND e.entry_date BETWEEN :ms AND :me
+                        GROUP BY e.category
+                        ORDER BY total_cents DESC
+                    ');
+                    $catStmt->execute([
+                        ':user_id' => $userId,
+                        ':ledger_id' => $ledgerId,
+                        ':type' => 'expense',
+                        ':ms' => $monthStart,
+                        ':me' => $monthEnd,
+                    ]);
+                    while ($catRow = $catStmt->fetch()) {
+                        $cents = (int) $catRow['total_cents'];
+                        $categoryStats[] = ['category' => $catRow['category'], 'cents' => $cents];
+                        $categoryTotalCents += $cents;
+                    }
+                }
+                ?>
+                <?php if ($categoryTotalCents > 0): ?>
+                <div class="category-stats" aria-label="本月類別支出統計">
+                    <h3>本月類別支出統計</h3>
+                    <svg class="category-chart" viewBox="0 0 600 300" role="img" aria-labelledby="category-chart-title">
+                        <title id="category-chart-title">本月各類別支出佔比</title>
+                        <?php
+                        $barHeight = 30;
+                        $gap = 10;
+                        $maxWidth = 500;
+                        $y = 20;
+                        foreach ($categoryStats as $stat) {
+                            $percent = $categoryTotalCents > 0 ? ($stat['cents'] / $categoryTotalCents) * 100 : 0;
+                            $barWidth = $maxWidth * ($percent / 100);
+                            $label = h($stat['category']);
+                            $amount = h(formatCents($stat['cents']));
+                            echo '<rect x="80" y="' . (int) $y . '" width="' . (int) $barWidth . '" height="' . (int) $barHeight . '" fill="#1f4e79" rx="2" />';
+                            echo '<text x="75" y="' . (int) ($y + $barHeight / 2 + 5) . '" text-anchor="end" font-size="12" fill="#23272b">' . $label . '</text>';
+                            echo '<text x="' . (int) (80 + $barWidth + 5) . '" y="' . (int) ($y + $barHeight / 2 + 5) . '" font-size="12" fill="#23272b">' . $amount . ' 元 (' . (int) $percent . '%)</text>';
+                            $y += $barHeight + $gap;
+                        }
+                        ?>
+                    </svg>
+                </div>
+                <?php elseif (!$isFiltered && $typeSel !== 'income' && $totalEntries === 0): ?>
+                <p class="empty">尚無支出紀錄。</p>
+                <?php endif; ?>
 
                 <h3><?php echo $isFiltered ? '符合條件的記錄' : '分錄記錄'; ?><span class="h3-meta">共 <?php echo h((string) $totalEntries); ?> 筆 · 每頁 50 筆 · 第 <?php echo h((string) $page); ?>/<?php echo h((string) $totalPages); ?> 頁</span></h3>
                 <?php if ($entries): ?>
@@ -425,5 +804,152 @@ if ($voucherId !== false && $voucherId !== null && $voucherId > 0 && in_array($v
             </main>
         </div>
     </div>
+
+    <?php if ($voiceText !== ''): ?>
+    <script>
+        (function () {
+            if (!window.speechSynthesis) return;
+            var text = <?php echo json_encode($voiceText); ?>;
+            var utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'zh-TW';
+            window.speechSynthesis.speak(utterance);
+        })();
+    </script>
+    <?php endif; ?>
+
+    <script>
+        // 字級切換：Cookie 讀寫與 .font-large 切換
+        (function () {
+            var toggle = document.getElementById('fontSizeToggle');
+            if (!toggle) return;
+
+            function getCookie(name) {
+                var value = '; ' + document.cookie;
+                var parts = value.split('; ' + name + '=');
+                if (parts.length === 2) return parts.pop().split(';').shift();
+                return null;
+            }
+
+            function setCookie(name, value, days) {
+                var expires = new Date();
+                expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000);
+                document.cookie = name + '=' + value + '; expires=' + expires.toUTCString() + '; path=/; SameSite=Lax';
+            }
+
+            var fontSize = getCookie('font_size');
+            if (fontSize === 'large') {
+                document.body.classList.add('font-large');
+                toggle.textContent = '一般 A';
+            }
+
+            toggle.addEventListener('click', function () {
+                if (document.body.classList.contains('font-large')) {
+                    document.body.classList.remove('font-large');
+                    setCookie('font_size', 'normal', 90);
+                    toggle.textContent = '大字 A';
+                } else {
+                    document.body.classList.add('font-large');
+                    setCookie('font_size', 'large', 90);
+                    toggle.textContent = '一般 A';
+                }
+            });
+        })();
+    </script>
+
+    <!-- 編輯重複記錄表單（隱藏，由 JavaScript 填入數據） -->
+    <div id="editRecurringModal" style="display:none;">
+        <form method="POST" action="./ledger.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="form">
+            <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
+            <input type="hidden" name="action" value="edit_recurring">
+            <input type="hidden" name="recurring_id" id="edit_recurring_id">
+            <h3>編輯重複記錄</h3>
+            <div class="form-grid">
+                <div class="field field-full">
+                    <label for="edit_recurring_name" class="label">名稱</label>
+                    <input type="text" name="name" id="edit_recurring_name" required class="input">
+                </div>
+                <div class="field">
+                    <label for="edit_recurring_amount" class="label">金額（元）</label>
+                    <input type="text" name="amount" id="edit_recurring_amount" required class="input mono" inputmode="decimal" pattern="\d+(\.\d{1,2})?">
+                </div>
+                <div class="field">
+                    <label for="edit_recurring_type" class="label">類型</label>
+                    <select name="type" id="edit_recurring_type" class="select">
+                        <option value="expense">支出聯（藍）</option>
+                        <option value="income">收入聯（紅）</option>
+                    </select>
+                </div>
+                <div class="field field-full">
+                    <label for="edit_recurring_category" class="label">類別</label>
+                    <input type="text" name="category" id="edit_recurring_category" class="input">
+                </div>
+                <div class="field">
+                    <label for="edit_recurring_start_date" class="label">起始日期</label>
+                    <input type="date" name="start_date" id="edit_recurring_start_date" required class="input mono">
+                </div>
+                <div class="field">
+                    <label for="edit_recurring_next_due" class="label">下次預計記錄日期</label>
+                    <input type="date" name="next_due_date" id="edit_recurring_next_due" required class="input mono">
+                </div>
+            </div>
+            <div style="margin-top: var(--space-4); display:flex; gap: var(--space-3);">
+                <button type="submit" class="btn primary">儲存變更</button>
+                <button type="button" class="btn secondary" onclick="closeEditRecurring()">取消</button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        function openEditRecurring(id, name, amountCents, type, category, startDate, nextDue) {
+            document.getElementById('edit_recurring_id').value = id;
+            document.getElementById('edit_recurring_name').value = name;
+            // amountCents 是整數分，轉換為元顯示
+            var dollars = Math.floor(Math.abs(amountCents) / 100);
+            var cents = Math.abs(amountCents) % 100;
+            var amountStr = dollars + (cents > 0 ? '.' + String(cents).padStart(2, '0') : '');
+            document.getElementById('edit_recurring_amount').value = amountStr;
+            document.getElementById('edit_recurring_type').value = type;
+            document.getElementById('edit_recurring_category').value = category;
+            document.getElementById('edit_recurring_start_date').value = startDate;
+            document.getElementById('edit_recurring_next_due').value = nextDue;
+            document.getElementById('editRecurringModal').style.display = 'block';
+        }
+
+        function closeEditRecurring() {
+            document.getElementById('editRecurringModal').style.display = 'none';
+        }
+
+        // 點擊模態框外部關閉
+        window.addEventListener('click', function (event) {
+            var modal = document.getElementById('editRecurringModal');
+            if (event.target === modal) {
+                closeEditRecurring();
+            }
+        });
+    </script>
+    <style>
+        #editRecurringModal {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(35, 39, 43, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        #editRecurringModal .form {
+            background: #fffdf1;
+            padding: var(--space-6);
+            border-radius: var(--radius);
+            border: 1px solid var(--line);
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        #editRecurringModal h3 {
+            margin-top: 0;
+        }
+    </style>
 </body>
 </html>

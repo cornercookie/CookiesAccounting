@@ -120,6 +120,46 @@ function ensureSchema(PDO $pdo): void
 SQL);
 
     $pdo->exec(<<<'SQL'
+    CREATE TABLE IF NOT EXISTS login_sessions (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id      INTEGER NOT NULL,
+        ip           TEXT    NOT NULL DEFAULT '',
+        user_agent   TEXT    NOT NULL DEFAULT '',
+        login_at     TEXT    NOT NULL,
+        is_first_seen INTEGER NOT NULL DEFAULT 1 CHECK (is_first_seen IN (0,1)),
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+SQL);
+    $pdo->exec(<<<'SQL'
+    CREATE INDEX IF NOT EXISTS idx_login_sessions_user_id  ON login_sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_login_sessions_login_at ON login_sessions(login_at);
+SQL);
+
+    $pdo->exec(<<<'SQL'
+    CREATE TABLE IF NOT EXISTS recurring_entries (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        ledger_id      INTEGER NOT NULL,
+        user_id        INTEGER NOT NULL,
+        name           TEXT    NOT NULL DEFAULT '',
+        amount_cents   INTEGER NOT NULL CHECK (amount_cents > 0),
+        type           TEXT    NOT NULL CHECK (type IN ('income','expense')),
+        category       TEXT    NOT NULL DEFAULT '',
+        start_date     TEXT    NOT NULL,
+        next_due_date  TEXT    NOT NULL,
+        is_active      INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+        created_at     TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+        updated_at     TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+        FOREIGN KEY (ledger_id) REFERENCES ledgers(id),
+        FOREIGN KEY (user_id)   REFERENCES users(id)
+    );
+SQL);
+    $pdo->exec(<<<'SQL'
+    CREATE INDEX IF NOT EXISTS idx_recurring_entries_ledger_id ON recurring_entries(ledger_id);
+    CREATE INDEX IF NOT EXISTS idx_recurring_entries_user_id   ON recurring_entries(user_id);
+    CREATE INDEX IF NOT EXISTS idx_recurring_entries_next_due  ON recurring_entries(next_due_date);
+SQL);
+
+    $pdo->exec(<<<'SQL'
     CREATE INDEX IF NOT EXISTS idx_ledgers_owner_id              ON ledgers(owner_id);
     CREATE INDEX IF NOT EXISTS idx_ledger_access_ledger_id       ON ledger_access(ledger_id);
     CREATE INDEX IF NOT EXISTS idx_ledger_access_user_id         ON ledger_access(user_id);
@@ -156,6 +196,18 @@ SQL);
     }
     if (!$hasReceipt) {
         $pdo->exec("ALTER TABLE entries ADD COLUMN receipt_path TEXT NOT NULL DEFAULT ''");
+    }
+
+    // 舊版資料庫 migration：entries 補 recurring_source_id 欄位（重複記錄來源關聯）
+    $hasRecurringSource = false;
+    foreach ($entriesCols as $col) {
+        if (($col['name'] ?? '') === 'recurring_source_id') {
+            $hasRecurringSource = true;
+            break;
+        }
+    }
+    if (!$hasRecurringSource) {
+        $pdo->exec("ALTER TABLE entries ADD COLUMN recurring_source_id INTEGER");
     }
 
     // 舊版資料庫 migration：ledgers 補 monthly_budget_cents 欄位（每月預算，整數分）

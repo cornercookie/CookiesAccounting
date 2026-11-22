@@ -144,7 +144,7 @@ Migration 掛載點：`db.php::ensureSchema()`，位置與既有 migration 風�
 - 現有程式碼第 168 行已嚴格限定 `in_array($parsed['type'], ['income', 'expense'], true)`，AI 不回傳 `'transfer'`。前端下拉選單若已加入 `'transfer'` 選項，AI 若誤回傳仍可選中，此為後續版本考量。
 
 ### 轉帳顯示顏色
-- DESIGN.md 的雙色印刷規則只定義紅（收入）／藍（支出），轉帳應為中性色（墨色），CSS class 採用 `.amt-neutral`，在 Design.md 中定義樣式。
+- ../DESIGN.md 的雙色印刷規則只定義紅（收入）／藍（支出），轉帳應為中性色（墨色），CSS class 採用 `.amt-neutral`，在 Design.md 中定義樣式。
 
 ### 非功能性需求
 - **效能**：轉帳記錄為單一筆寫入，查詢時多一個 `WHERE type = 'transfer'` 的 SUM 查詢，資料量極小，效能影響可忽略。

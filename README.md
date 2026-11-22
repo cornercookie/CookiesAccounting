@@ -13,7 +13,7 @@
 ## 日誌
 
 - **錯誤 Log**：PHP 錯誤與未捕捉例外寫入 `private_data/error.log`（僅主機可讀，`display_errors` 已關閉，瀏覽器只會看到通用錯誤頁）。無自動輪替，請定期備份後手動清理。
-- **操作審計 Log**：登入／登出、新增／作廢記錄、密碼變更與所有後台管理操作寫入 `audit_log` 資料表；管理員可在「操作紀錄」頁（`admin/audit_log.php`）檢視，唯讀、不可從網頁刪除。詳細見 `TASK5_NOTES.md`。
+- **操作審計 Log**：登入／登出、新增／作廢記錄、密碼變更與所有後台管理操作寫入 `audit_log` 資料表；管理員可在「操作紀錄」頁（`admin/audit_log.php`）檢視，唯讀、不可從網頁刪除。詳細見 `docs/TASK5_NOTES.md`。
 
 ## 部署
 
@@ -24,7 +24,7 @@
 5. 確認直接開啟 `/.env` 與 `/private_data/` 都回傳 403。
 6. 確認主機已啟用 HTTPS（Session Cookie 設為 `secure`，若非 HTTPS 將無法傳送登入 Cookie）。
 
-部署細節見 `FINAL_NOTES.md`。
+部署細節見 `docs/FINAL_NOTES.md`。
 
 ## 資安全防護
 

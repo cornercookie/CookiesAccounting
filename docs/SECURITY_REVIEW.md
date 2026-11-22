@@ -4,7 +4,7 @@
 
 - **目標**：`C:\tempDevelopmenyEnviroment\CookiesAccounting`（純 PHP + SQLite 家庭記帳系統）
 - **審查方法**：read-only 原始碼審查（Scope → Scan → Review → Report），符合 `security-reviewer` 與 `security-audit` 方法論；遵循 `execution-guardrails` verify-before-flag（僅報告經原始碼直接確認的問題）
-- **審查對象**：根目錄全部 PHP 檔案、`admin/`、`private_data/.htaccess`、根目錄 `.htaccess`、`.env.example`、`.gitignore`、README/FINAL_NOTES/NOTES 與既有 REVIEW_REPORT_PART1~4
+- **審查對象**：根目錄全部 PHP 檔案、`admin/`、`private_data/.htaccess`、根目錄 `.htaccess`、`.env.example`、`.gitignore`、../README/FINAL_NOTES/NOTES 與既有 REVIEW_REPORT_PART1~4
 - **未執行**：本機無 PHP 執行環境（無 `php -l` 或內建伺服器），未進行動態滲透測試；所有發現皆為靜態原始碼確認
 - **環境假設**：部署於 cPanel（Apache，支援 `.htaccess`）、PHP 8.1+、pdo_sqlite
 

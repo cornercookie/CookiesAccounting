@@ -686,4 +686,138 @@ table .receipt-col .meta {
   .import-error-list li { font-size: var(--text-xs); }
 }
 
+/* ---------- 全站記錄搜尋 ---------- */
+.search-form {
+  margin: var(--space-4) 0 var(--space-6);
+  padding: var(--space-4);
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.search-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+@media (max-width: 720px) {
+  .search-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.search-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.search-form .form-group label {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+
+.search-form .form-group input {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-base);
+  font-family: var(--font-body);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper-2);
+  color: var(--ink);
+}
+
+.search-form .form-group input:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-tint);
+}
+
+.search-actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.search-result {
+  margin-top: var(--space-5);
+}
+
+.search-hint {
+  padding: var(--space-3) var(--space-4);
+  background: var(--blue-tint);
+  border: 1px solid var(--blue);
+  border-radius: var(--radius);
+  color: var(--blue-deep);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-4);
+}
+
+.search-empty {
+  text-align: center;
+  padding: var(--space-8);
+  color: var(--ink-2);
+  font-size: var(--text-base);
+}
+
+.search-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  flex-wrap: wrap;
+}
+
+.pager-info {
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+}
+
+.pager-links {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* 手機版調整：搜尋表單與分頁 */
+@media (max-width: 720px) {
+  .search-form {
+    padding: var(--space-3);
+  }
+  .search-form .form-group label {
+    font-size: var(--text-xs);
+  }
+  .search-form .form-group input {
+    min-height: 48px;
+    font-size: var(--text-base);
+  }
+  .search-actions {
+    width: 100%;
+    flex-direction: column;
+  }
+  .search-actions .btn {
+    width: 100%;
+  }
+  .search-pager {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+  }
+  .pager-links {
+    justify-content: center;
+  }
+}
+
 

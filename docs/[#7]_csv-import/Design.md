@@ -5,10 +5,10 @@
 | 項目 | 內容 |
 | --- | --- |
 | 文件名稱 | Design: 匯入 CSV 明細記錄（批次匯入收支記錄） |
-| 版本 | v1.0 |
+| 版本 | v1.1 |
 | 建立日期 | 2026-11-22 |
 | 更新日期 | 2026-11-22 |
-| 變更摘要 | 初始設計，依 Planning 四項功能拆解為程式修改路徑與資料庫變更 |
+| 變更摘要 | v1.1 修正規格差異：ledger.php 匯入按鈕已存在、補充 CSV 公式注入防護、檔案 MIME 驗證、BOM 處理、欄位數驗證、記錄者查詢驗證、錯誤原因限制筆數；依既有程式碼模式細化實作細節 |
 
 ## 來源 Planning 與需求摘要
 
@@ -21,15 +21,28 @@
 本設計依循專案既有設計系統與硬性約束（PDO 預備陳述式、整數分金額、CSRF、h() XSS 轉義、ledger_access 權限模型、純 PHP 伺服端渲染、相對路徑 `./` 開頭）。主要變更如下：
 
 1. **新增 `import_csv.php`**：匯入 CSV 頁面，包含 CSV 檔案上傳欄位與 CSRF 隱藏欄位；GET 顯示上傳表單，POST 接收檔案並進行驗證與匯入。
-2. **帳本詳情頁按鈕**：在 `ledger.php` 帳本詳情頁新增「匯入 CSV」操作按鈕，與現有「匯出明細 CSV」按鈕並列。
-3. **權限檢查**：所有查詢與寫入皆透過 `ledger_access` 做 IDOR 防護；owner/member 可匯入，viewer 僅可檢視（匯入為寫入操作，僅 owner/member 可執行）。
-4. **CSRF 防護**：表單需包含 `csrf_token` 隱藏欄位，伺服端以 `checkCsrf()` 驗證。
-5. **CSV 解析**：採用 `fgetcsv()` 逐行讀取，第一列視為標題行並跳過；支援 UTF-8（含 BOM 或不含 BOM，BOM 自動去除）。
-6. **逐行驗證**：日期格式（`isValidDate()`）、類型（收入/支出/轉帳，轉換為 income/expense/transfer）、金額格式（`toCents()`，不得為負數）、分類長度（≤50 字元）、記錄者（若不提供則使用目前登入使用者 `$userId`）。
-7. **錯誤處理**：驗證失敗的記錄跳過並記錄錯誤原因，不影響其他記錄；匯入完成後顯示結果摘要（成功筆數、失敗筆數、失敗原因）。
-8. **audit_log 記錄**：匯入完成後呼叫 `logAudit('csv_import', 'ledger_id=... success=... failed=...')`。
-9. **無資料庫變更**：複用既有 `entries` 表，不新增資料表，無 migration。
-10. **硬性約束**：所有寫入必須用 PDO 預備陳述式、所有路徑 `./` 開頭、所有輸出 `h()` 轉義。
+2. **帳本詳情頁按鈕**：`ledger.php` **已存在**「匯入 CSV 明細」按鈕（line 494-498），與「匯出明細 CSV」並列，僅 `$canWrite` (owner/member) 顯示；**無需修改 ledger.php**。
+3. **權限檢查**：所有查詢與寫入皆透過 `ledger_access` 做 IDOR 防護；owner/member 可匯入，viewer 僅可檢視（匯入為寫入操作，僅 owner/member 可執行）。參考 `export_csv.php` line 22-34 模式。
+4. **CSRF 防護**：表單需包含 `csrf_token` 隱藏欄位，伺服端以 `checkCsrf()` 驗證；失敗導向並帶錯誤訊息。
+5. **CSV 解析**：採用 `fgetcsv()` 逐行讀取，第一列視為標題行並跳過；支援 UTF-8（含 BOM 或不含 BOM，BOM 自動去除：**讀取第一行時檢查 `$header[0]` 是否以 `\xEF\xBB\xBF` 開頭，若是則移除**）。
+6. **逐行驗證**：
+   - 日期格式（`isValidDate()`）
+   - 類型（收入/支出/轉帳 → income/expense/transfer）
+   - 金額格式（`toCents()`，不得為負數）
+   - 分類長度（≤50 字元）
+   - 記錄者：CSV 提供時查詢 `users` 表驗證存在性（username 對應 user_id），不存在或空值 → 使用目前登入使用者 `$userId`
+   - **欄位數驗證**：每行必須為 6 欄位（日期、類型、金額、分類、記錄者、備註），不足補空字串，超過截斷並記錄警告
+7. **CSV 公式注入防護**（同 `export_csv.php` line 77-84）：寫入資料庫前對 `category`、`note`、`recorder` 欄位檢查開頭字元是否為 `=`, `+`, `-`, `@`, `\t`, `\r`，若是則前綴單引號 `'`。
+8. **檔案上傳驗證**：
+   - 副檔名 `.csv`（大小寫不敏感）
+   - 檔案大小 ≤ 2MB
+   - **MIME type 驗證**：`finfo_file()` 確認為 `text/csv`、`text/plain`、`application/csv` 之一
+   - 上傳錯誤代碼檢查（`UPLOAD_ERR_OK`）
+   - 直接讀取 `$_FILES['csv']['tmp_name']`，**不儲存檔案於伺服器**
+9. **錯誤處理**：驗證失敗的記錄跳過並記錄錯誤原因（行號、欄位、原因），不影響其他記錄；**失敗原因最多記錄前 100 筆**，超過顯示「其餘略過」；匯入完成後顯示結果摘要（成功筆數、失敗筆數、失敗原因）。
+10. **audit_log 記錄**：匯入完成後呼叫 `logAudit('csv_import', 'ledger_id=' . $ledgerId . ' success=' . $successCount . ' failed=' . $failedCount)`。
+11. **無資料庫變更**：複用既有 `entries` 表，不新增資料表，無 migration。
+12. **硬性約束**：所有寫入必須用 PDO 預備陳述式、所有路徑 `./` 開頭、所有輸出 `h()` 轉義。
 
 ## 設計圖表（Mermaid）
 
@@ -61,9 +74,9 @@ flowchart TD
 
 | 檔案 | 修改內容 |
 | --- | --- |
-| `import_csv.php`（新增） | 匯入 CSV 頁面：<br>1. 頁面頂端呼叫 `requireLogin()`，確認使用者已登入。<br>2. 取得 `ledger_id` 參數（整數），透過 `ledger_access` 驗證權限（owner/member 可匯入，viewer 僅可檢視，匯入為寫入操作僅 owner/member 可執行）。<br>3. GET：顯示 CSV 檔案上傳表單，包含 `csrf_token` 隱藏欄位（`csrfToken()`）。<br>4. POST：驗證 CSRF（`checkCsrf()`）、驗證檔案類型（.csv）與大小（≤2MB）、防止路徑遍歷。<br>5. 用 `fgetcsv()` 逐行讀取，第一列標題行跳過，BOM 自動去除。<br>6. 逐行驗證：日期格式、`isValidDate()`；類型收入/支出/轉帳轉換為 income/expense/transfer；金額 `toCents()` 不得為負數；分類長度 ≤50 字元；記錄者若不提供則使用目前登入使用者 `$userId`。<br>7. 驗證通過以 PDO 預備陳述式（具名佔位符）寫入 `entries` 表；失敗記錄錯誤原因但不寫入。<br>8. 匯入完成顯示結果摘要：成功筆數、失敗筆數、失敗原因。<br>9. 呼叫 `logAudit('csv_import', 'ledger_id=' . $ledgerId . ' success=' . $successCount . ' failed=' . $failedCount)`。<br>10. 所有輸出經 `h()` 轉義，所有路徑 `./` 開頭，不儲存 CSV 檔案於伺服器（直接由 `$_FILES['tmp_name']` 讀取）。 |
-| `ledger.php` | 在帳本詳情頁新增「匯入 CSV」操作按鈕，與現有「匯出明細 CSV」按鈕並列；按鈕連結至 `./import_csv.php?ledger_id=...`；僅 owner/member 可見（viewer 不顯示）。 |
-| `assets/style.css` | 新增匯入 CSV 頁面表單與結果摘要樣式（`.import-form`、`.import-result`、`.import-error`），沿用既有 `.btn`、`.alert` 樣式，支援手機單欄顯示。 |
+| `import_csv.php`（新增） | 匯入 CSV 頁面：<br>1. 頁面頂端呼叫 `requireLogin()`，確認使用者已登入。<br>2. 取得 `ledger_id` 參數（整數，`filter_var(..., FILTER_VALIDATE_INT)`），透過 `ledger_access` 驗證權限（參考 `export_csv.php` line 22-34）：查詢 `ledgers` + `ledger_access` 確認帳本存在且用戶有權限；owner/member 可匯入，viewer 導向錯誤頁或顯示無權限訊息。<br>3. GET：顯示 CSV 檔案上傳表單，包含 `csrf_token` 隱藏欄位（`csrfToken()`），`enctype="multipart/form-data"`，`accept=".csv"`。<br>4. POST：<br>   a. 驗證 CSRF（`checkCsrf()`），失敗導向帶錯誤訊息。<br>   b. 驗證檔案：`$_FILES['csv']['error'] === UPLOAD_ERR_OK`、副檔名 `.csv`、大小 ≤ 2MB、**MIME type**（`finfo_file()` 檢查 `text/csv`、`text/plain`、`application/csv`）、`tmp_name` 存在。<br>   c. 用 `fopen($tmpName, 'r')` 開啟，`fgetcsv()` 逐行讀取。<br>   d. 第一行標題行：跳過，並**檢查 BOM**（`str_starts_with($header[0], "\xEF\xBB\xBF")` 則 `$header[0] = substr($header[0], 3)`）。<br>   e. 逐行處理（行號從 2 開始）：<br>      - **欄位數驗證**：`count($row) < 6` 補空字串，`> 6` 截斷並記錄警告。<br>      - 解析 6 欄位：日期、類型、金額、分類、記錄者、備註。<br>      - 日期：`isValidDate($date)`。<br>      - 類型：中文收入/支出/轉帳 → `income`/`expense`/`transfer`。<br>      - 金額：`toCents($amount)` 回傳 `false` 或 ≤0 視為錯誤。<br>      - 分類：`mb_strlen($category, 'UTF-8') <= 50`。**CSV 公式注入防護**：開頭為 `=`, `+`, `-`, `@`, `\t`, `\r` 者前綴 `'`。<br>      - 記錄者：若提供，查詢 `users` 表 `WHERE username = ? LIMIT 1` 取得 `user_id`；不存在或空值 → 使用目前登入 `$userId`。**備註同樣做公式注入防護**。<br>      - 驗證通過：PDO 預備陳述式寫入 `entries` 表（具名佔位符：`ledger_id`, `user_id`, `amount_cents`, `type`, `category`, `entry_date`, `note`, `receipt_path=''`, `deleted=0`, `recurring_source_id=NULL`）。<br>      - 驗證失敗：記錄錯誤原因（`"第 $rowNum 行：$field $reason"`），**失敗原因陣列最多 100 筆**，跳過該行。<br>   f. 關閉檔案控制代碼。<br>5. 匯入完成顯示結果摘要：成功筆數、失敗筆數、失敗原因列表（行號、錯誤訊息，皆經 `h()` 轉義）。<br>6. 呼叫 `logAudit('csv_import', 'ledger_id=' . $ledgerId . ' success=' . $successCount . ' failed=' . $failedCount)`。<br>7. 所有輸出經 `h()` 轉義，所有路徑 `./` 開頭，不儲存 CSV 檔案於伺服器。 |
+| `ledger.php` | **已完成**（line 494-498）：帳本詳情頁已有「匯入 CSV 明細」按鈕，與「匯出明細 CSV」並列；連結 `./import_csv.php?ledger_id=...`；僅 `$canWrite` (owner/member) 顯示。**無需修改**。 |
+| `assets/style.css` | 新增匯入 CSV 頁面表單與結果摘要樣式（`.import-form`、`.import-result`、`.import-error`），沿用既有 `.btn`、`.alert`、`.form`、`.input`、`.table` 樣式，支援手機單欄顯示（≥44px 觸控目標）。 |
 | 無新增資料表 | 不涉及資料庫結構變更，無 migration。 |
 
 ## 資料庫變更

@@ -20,16 +20,7 @@ if ($ledgerId === false || $ledgerId === null) {
 }
 
 // 驗證目前使用者對該帳本的存取權限（IDOR 防護）
-$stmt = $pdo->prepare('
-    SELECT l.name, l.archived, la.role
-    FROM ledgers l
-    INNER JOIN ledger_access la ON la.ledger_id = l.id
-    WHERE l.id = :ledger_id
-      AND la.user_id = :user_id
-    LIMIT 1
-');
-$stmt->execute([':ledger_id' => $ledgerId, ':user_id' => $userId]);
-$ledger = $stmt->fetch();
+$ledger = getLedgerWithAccess($pdo, $ledgerId, $userId);
 if ($ledger === false) {
     redirect('./ledgers.php?error=1');
 }
@@ -38,57 +29,38 @@ if ((int) ($ledger['archived'] ?? 0) === 1) {
 }
 
 // 讀取日期參數，預設為當月首日與當月最後一日（Asia/Taipei 時區）
-$today = new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei'));
 $startDateRaw = $_GET['start_date'] ?? '';
 $endDateRaw   = $_GET['end_date'] ?? '';
+[$startDate, $endDate, $dateError] = parseDateRange($startDateRaw, $endDateRaw);
 
-if (!is_string($startDateRaw) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDateRaw) || !isValidDate($startDateRaw)) {
-    $startDate = $today->format('Y-m-01');
-} else {
-    $startDate = $startDateRaw;
+if ($dateError !== '') {
+    // 日期錯誤：顯示友善錯誤頁面，不 redirect
+    $content = '<p class="alert error" role="alert">' . h($dateError) . '</p>';
+    renderPdfExportPage($user, '匯出 PDF 月結單', $ledger['name'], '查詢期間：' . h($startDate) . ' ～ ' . h($endDate), $content);
+    exit;
 }
 
-if (!is_string($endDateRaw) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDateRaw) || !isValidDate($endDateRaw)) {
-    $endDate = $today->format('Y-m-t');
-} else {
-    $endDate = $endDateRaw;
+// 查詢明細與彙總
+[$entries, $monthlyStats, $queryError] = fetchEntriesWithStats($pdo, $userId, $ledgerId, $startDate, $endDate);
+
+if ($queryError !== '') {
+    // 查詢失敗：顯示友善錯誤頁面
+    $content = '<p class="alert error" role="alert">' . h($queryError) . '</p>';
+    renderPdfExportPage($user, '匯出 PDF 月結單', $ledger['name'], '查詢期間：' . h($startDate) . ' ～ ' . h($endDate), $content);
+    exit;
 }
 
-// 結束日期不得早於開始日期
-if ($endDate < $startDate) {
-    $endDate = $startDate;
-}
-
-// 查詢該帳本所有非作廢記錄
-$stmt = $pdo->prepare('
-    SELECT e.entry_date, e.type, e.amount_cents, e.category, e.note, u.username
-    FROM entries e
-    INNER JOIN ledger_access la ON la.ledger_id = e.ledger_id AND la.user_id = :user_id
-    WHERE e.ledger_id = :ledger_id
-      AND e.deleted = 0
-      AND e.entry_date BETWEEN :startDate AND :endDate
-    ORDER BY e.entry_date DESC, e.id DESC
-');
-$stmt->execute([
-    ':user_id'      => $userId,
-    ':ledger_id'    => $ledgerId,
-    ':startDate'    => $startDate,
-    ':endDate'      => $endDate,
-]);
-$entries = $stmt->fetchAll();
-
-// 統計總額
+// 計算總計（從 monthlyStats 計算）
 $totalIncomeCents  = 0;
 $totalExpenseCents = 0;
 $totalTransferCents = 0;
-foreach ($entries as $row) {
-    if ($row['type'] === 'income') {
-        $totalIncomeCents += (int) $row['amount_cents'];
-    } elseif ($row['type'] === 'expense') {
-        $totalExpenseCents += (int) $row['amount_cents'];
-    } elseif ($row['type'] === 'transfer') {
-        $totalTransferCents += (int) $row['amount_cents'];
-    }
+foreach ($monthlyStats as $row) {
+    $income  = (int) $row['income_cents'];
+    $expense = (int) $row['expense_cents'];
+    $transfer= (int) $row['transfer_cents'];
+    $totalIncomeCents  += $income;
+    $totalExpenseCents += $expense;
+    $totalTransferCents += $transfer;
 }
 $totalBalanceCents = $totalIncomeCents - $totalExpenseCents;
 ?>
@@ -153,6 +125,37 @@ $totalBalanceCents = $totalIncomeCents - $totalExpenseCents;
                     <p class="pdf-empty">該期間無記錄。</p>
                 <?php else: ?>
                     <div class="pdf-report">
+                        <h2>收支彙總</h2>
+                        <div class="pdf-total">
+                            <table class="pdf-table">
+                                <thead>
+                                    <tr>
+                                        <th>項目</th>
+                                        <th class="num">金額（元）</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>收入</td>
+                                        <td class="num"><?php echo h(formatCents($totalIncomeCents)); ?></td>
+                                    </tr>
+                                    <tr>
+                                        <td>支出</td>
+                                        <td class="num"><?php echo h(formatCents($totalExpenseCents)); ?></td>
+                                    </tr>
+                                    <tr>
+                                        <td>轉帳</td>
+                                        <td class="num"><?php echo h(formatCents($totalTransferCents)); ?></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>結餘</strong></td>
+                                        <td class="num"><strong><?php echo h(formatCents($totalBalanceCents)); ?></strong></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h2>詳細記錄</h2>
                         <table class="pdf-table">
                             <thead>
                                 <tr>
@@ -175,14 +178,6 @@ $totalBalanceCents = $totalIncomeCents - $totalExpenseCents;
                                     <td><?php echo h((string) ($row['note'] ?? '')); ?></td>
                                 </tr>
                                 <?php endforeach; ?>
-                                <tr class="pdf-total">
-                                    <td><strong>總計</strong></td>
-                                    <td class="num"></td>
-                                    <td class="num"><?php echo h(formatCents($totalIncomeCents)); ?></td>
-                                    <td></td>
-                                    <td></td>
-                                    <td></td>
-                                </tr>
                             </tbody>
                         </table>
                     </div>
@@ -194,6 +189,6 @@ $totalBalanceCents = $totalIncomeCents - $totalExpenseCents;
         </div>
     </div>
 
-        <script src="./assets/app.js"></script>
+    <script src="./assets/app.js"></script>
 </body>
 </html>

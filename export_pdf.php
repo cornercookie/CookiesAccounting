@@ -19,21 +19,7 @@ if ($ledgerId === false || $ledgerId === null) {
 }
 
 // 驗證目前使用者對該帳本的存取權限（IDOR 防護）
-$stmt = $pdo->prepare('
-    SELECT l.name, l.archived, la.role
-    FROM ledgers l
-    INNER JOIN ledger_access la ON la.ledger_id = l.id
-    WHERE l.id = :ledger_id
-      AND la.user_id = :user_id
-    LIMIT 1
-');
-try {
-    $stmt->execute([':ledger_id' => $ledgerId, ':user_id' => $userId]);
-} catch (Throwable $e) {
-    logError('export_pdf.php ledger query failed: ' . $e->getMessage());
-    redirect('./ledgers.php?error=1');
-}
-$ledger = $stmt->fetch();
+$ledger = getLedgerWithAccess($pdo, $ledgerId, $userId);
 if ($ledger === false) {
     redirect('./ledgers.php?error=1&msg=' . urlencode('您無權存取此帳本。'));
 }
@@ -42,114 +28,39 @@ if ((int) ($ledger['archived'] ?? 0) === 1) {
 }
 
 // 讀取日期參數，預設為當月首日與當月最後一日（Asia/Taipei 時區）
-$today = new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei'));
 $startDateRaw = $_GET['start_date'] ?? '';
 $endDateRaw   = $_GET['end_date'] ?? '';
+[$startDate, $endDate, $dateError] = parseDateRange($startDateRaw, $endDateRaw);
 
-if (!is_string($startDateRaw) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDateRaw) || !isValidDate($startDateRaw)) {
-    $startDate = $today->format('Y-m-01');
-} else {
-    $startDate = $startDateRaw;
+if ($dateError !== '') {
+    redirect('./export_pdf.php?ledger_id=' . $ledgerId . '&start_date=' . urlencode($startDate) . '&end_date=' . urlencode($endDate) . '&error=1&msg=' . urlencode($dateError));
 }
 
-if (!is_string($endDateRaw) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDateRaw) || !isValidDate($endDateRaw)) {
-    $endDate = $today->format('Y-m-t');
-} else {
-    $endDate = $endDateRaw;
+// 查詢明細與彙總
+[$entries, $monthlyStats, $queryError] = fetchEntriesWithStats($pdo, $userId, $ledgerId, $startDate, $endDate);
+
+if ($queryError !== '') {
+    // 查詢失敗：顯示友善錯誤頁面，不 redirect
+    $content = '<p class="alert error" role="alert">' . h($queryError) . '</p>';
+    renderPdfExportPage($user, '匯出 PDF 月結單', $ledger['name'], '查詢期間：' . h($startDate) . ' ～ ' . h($endDate), $content);
+    exit;
 }
 
-// 結束日期不得早於開始日期
-if ($endDate < $startDate) {
-    redirect('./export_pdf.php?ledger_id=' . $ledgerId . '&start_date=' . urlencode($startDate) . '&end_date=' . urlencode($startDate) . '&error=1');
-}
-
-// 預先初始化變數
-$monthlyStats = [];
+// 計算總計（從 monthlyStats 計算，避免 cursor 耗盡問題）
 $totalIncomeCents  = 0;
 $totalExpenseCents = 0;
 $totalTransferCents = 0;
-$totalBalanceCents = 0;
-$entries = [];
-$error = false;
-$msg = '';
-
-// 查詢該帳本所有非作廢記錄的詳細記錄（用於 PDF 詳細記錄表）
-try {
-    $stmt = $pdo->prepare('
-        SELECT e.entry_date, e.type, e.amount_cents, e.category, e.note, u.username
-        FROM entries e
-        INNER JOIN ledger_access la ON la.ledger_id = e.ledger_id AND la.user_id = :user_id
-        INNER JOIN users u ON u.id = e.user_id
-        WHERE e.ledger_id = :ledger_id
-          AND e.deleted = 0
-          AND e.entry_date BETWEEN :startDate AND :endDate
-        ORDER BY e.entry_date DESC, e.id DESC
-    ');
-    $stmt->execute([
-        ':user_id'      => $userId,
-        ':ledger_id'    => $ledgerId,
-        ':startDate'    => $startDate,
-        ':endDate'      => $endDate,
-    ]);
-    $entries = $stmt->fetchAll();
-} catch (Throwable $e) {
-    logError('export_pdf.php detail query failed: ' . $e->getMessage());
-    $entries = [];
-    $error = true;
-    $msg = '報表查詢失敗，請稍後再試。';
-}
-
-// 查詢月度彙總（用於 PDF 彙總表）
-try {
-    $stmt = $pdo->prepare('
-        SELECT
-            strftime(\'%Y-%m\', e.entry_date) AS ym,
-            SUM(CASE WHEN e.type = \'income\' THEN e.amount_cents ELSE 0 END) AS income_cents,
-            SUM(CASE WHEN e.type = \'expense\' THEN e.amount_cents ELSE 0 END) AS expense_cents,
-            SUM(CASE WHEN e.type = \'transfer\' THEN e.amount_cents ELSE 0 END) AS transfer_cents
-        FROM entries e
-        INNER JOIN ledger_access la ON la.ledger_id = e.ledger_id AND la.user_id = :user_id
-        WHERE e.ledger_id = :ledger_id
-          AND e.deleted = 0
-          AND e.entry_date BETWEEN :startDate AND :endDate
-        GROUP BY ym
-        ORDER BY ym
-    ');
-    $stmt->execute([
-        ':user_id'      => $userId,
-        ':ledger_id'    => $ledgerId,
-        ':startDate'    => $startDate,
-        ':endDate'      => $endDate,
-    ]);
-    $monthlyStats = $stmt->fetchAll();
-} catch (Throwable $e) {
-    logError('export_pdf.php summary query failed: ' . $e->getMessage());
-    $monthlyStats = [];
-    $totalIncomeCents  = 0;
-    $totalExpenseCents = 0;
-    $totalTransferCents = 0;
-    $error = true;
-    $msg = '報表查詢失敗，請稍後再試。';
-}
-
-while ($row = $stmt->fetch()) {
+foreach ($monthlyStats as $row) {
     $income  = (int) $row['income_cents'];
     $expense = (int) $row['expense_cents'];
     $transfer= (int) $row['transfer_cents'];
-    $monthlyStats[] = [
-        'ym'        => (string) $row['ym'],
-        'income'    => $income,
-        'expense'   => $expense,
-        'transfer'  => $transfer,
-        'balance'   => $income - $expense,
-    ];
     $totalIncomeCents  += $income;
     $totalExpenseCents += $expense;
     $totalTransferCents += $transfer;
 }
 $totalBalanceCents = $totalIncomeCents - $totalExpenseCents;
 
-// 無記錄時不產生空白 PDF，導向空白頁面
+// 無記錄時導向空白頁面
 if (empty($entries)) {
     redirect('./pdf_export_empty.php?ledger_id=' . $ledgerId . '&start_date=' . urlencode($startDate) . '&end_date=' . urlencode($endDate));
 }
@@ -277,7 +188,7 @@ try {
     header('Pragma: no-cache');
     header('Expires: 0');
 
-    // 匯出成功後記錄 audit_log
+    // 匯出成功後記錄 audit_log（移到 Output 成功後）
     logAudit('pdf_export', 'ledger_id=' . $ledgerId . ' start_date=' . $startDate . ' end_date=' . $endDate);
 
     $pdf->Output($filename, 'D');
@@ -285,66 +196,9 @@ try {
 } catch (Throwable $e) {
     ob_end_clean(); // 清除已緩衝的輸出
     logError('export_pdf.php PDF generation failed: ' . $e->getMessage());
-    $error = true;
-    $msg = 'PDF 產生失敗，請稍後再試。';
+
+    // PDF 生成失敗：顯示友善錯誤頁面
+    $content = '<p class="alert error" role="alert">PDF 產生失敗，請稍後再試。</p>';
+    renderPdfExportPage($user, '匯出 PDF 月結單', $ledger['name'], '查詢期間：' . h($startDate) . ' ～ ' . h($endDate), $content);
+    exit;
 }
-
-// 如果進入此處表示發生錯誤，顯示錯誤頁面
-?>
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>匯出 PDF 月結單 - 全家人記帳系統</title>
-    <link rel="stylesheet" href="./assets/style.css?v=20261115-8">
-</head>
-<body>
-    <div class="app">
-        <aside class="side">
-            <a class="brand" href="./dashboard.php">
-                <span class="brand-kicker">FAMILY VOUCHER</span>
-                <b>全家人記帳系統</b>
-                <span class="brand-mark" aria-hidden="true"><i class="in"></i><i class="out"></i></span>
-            </a>
-            <nav class="nav" aria-label="主要導覽">
-                <p class="nav-h">帳務</p>
-                <a class="nav-item" href="./dashboard.php">儀表板</a>
-                <a class="nav-item" href="./ledgers.php">帳本列表</a>
-                <a class="nav-item" href="./change_password.php">變更密碼</a>
-                <?php if ($user['role'] === 'admin'): ?>
-                    <p class="nav-h">後台</p>
-                    <a class="nav-item" href="./admin/users.php">使用者管理</a>
-                    <a class="nav-item" href="./admin/ledgers.php">帳本管理</a>
-                    <a class="nav-item" href="./admin/audit_log.php">操作紀錄</a>
-                <?php endif; ?>
-            </nav>
-            <div class="side-foot">
-                <div class="who"><b><?php echo h($user['username']); ?></b><span class="role-chip"><?php echo h($user['role']); ?></span></div>
-                <button type="button" class="font-size-toggle" id="fontSizeToggle" title="切換大字模式">大字 A</button>
-                <a class="logout" href="./logout.php">登出</a>
-            </div>
-        </aside>
-
-        <div class="main">
-            <main class="sheet">
-                <div class="page-head">
-                    <div>
-                        <h1>匯出 PDF 月結單</h1>
-                        <p class="sub">帳本：<strong><?php echo h($ledger['name']); ?></strong></p>
-                    </div>
-                </div>
-
-                <?php if (!empty($msg)): ?>
-                    <p class="alert error" role="alert"><?php echo h($msg); ?></p>
-                <?php endif; ?>
-
-                <p><a href="./export_pdf.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn primary">重新嘗試匯出</a></p>
-                <p><a href="./ledger.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn secondary">返回帳本詳情</a></p>
-            </main>
-        </div>
-    </div>
-
-        <script src="./assets/app.js"></script>
-</body>
-</html>

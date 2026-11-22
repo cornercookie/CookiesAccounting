@@ -5,14 +5,14 @@
 | 項目 | 內容 |
 | --- | --- |
 | 文件名稱 | Design: 匯出 PDF 月結單（多月份收支彙總） |
-| 版本 | v1.1 |
+| 版本 | v1.3 |
 | 建立日期 | 2026-11-22 |
-| 更新日期 | 2026-11-22 |
-| 變更摘要 | v1.1 補充預算超支提醒、中文檔名 filename*、PDF 生成順序、TCPDF 載入偵測、無記錄處理、PDF 輸出標頭、彙總計算邏輯、ledger.php 按鈕細節、CSS 樣式使用場景、TCPDF 輸出時 XSS 轉義適用性 |
+| 更新日期 | 2026-11-23 |
+| 變更摘要 | v1.3 修正 TCPDF 版本為 7.0.25、部署字體目錄支援中文 PDF 生成（DejaVu Sans + CID 字體）、新增字體轉換與測試腳本；v1.2 修正實作問題：部署 TCPDF、修正彙總計算邏輯錯誤、消除程式碼重複（DRY）、統一錯誤處理、統一空記錄處理、修正 audit_log 記機、修正 fallback 頁面日期驗證 bug、更新 Design.md 同步實際實作 |
 
 ## 來源 Planning 與需求摘要
 
-- Planning 檔案：`docs/pdf-export/planning.md`
+- Planning 檔案：`docs/[#8]_pdf-export/planning.md`
 - 對應 Feature：匯出 PDF 月結單（第二階段第 7 項）
 - 需求摘要：新增 `export_pdf.php` 頁面，讓使用者將帳本收支明細匯出為 PDF 檔案；不新增資料庫表，僅複用既有 `entries` 表；PDF 產生使用 TCPDF（純 PHP 庫），不需要 Composer；若 TCPDF 載入失敗，退而求其次提供列印優化的 HTML 頁面。
 
@@ -22,12 +22,17 @@
 
 1. **新增 PDF 匯出頁面**：建立 `export_pdf.php`，支援 `ledger_id`、`start_date`、`end_date` 參數；匯出 PDF 包含帳本名稱、查詢期間、收入、支出、轉帳、結餘總額，以及詳細記錄列表。
 2. **查詢邏輯**：使用 PDO 預備陳述式與 `ledger_access` 做 IDOR 防護；日期區間使用 `start_date` 與 `end_date`（Y-m-d 格式，經 `isValidDate()` 驗證）。
-3. **PDF 產生**：使用 TCPDF（純 PHP 庫），載入失敗時退而求其次提供列印優化的 HTML 頁面。PDF 生成先在記憶體中產生（`ob_start()` 或直接寫入字串變數），確認成功後再輸出 HTTP 標頭與內容。
+3. **PDF 產生**：使用 TCPDF（純 PHP 庫，版本 7.0.25），放置於 `./lib/tcpdf/`；載入失敗時退而求其次提供列印優化的 HTML 頁面。PDF 生成先在記憶體中產生（`ob_start()`），確認成功後再輸出 HTTP 標頭與內容。**字體支援**：部署 `./lib/tcpdf/fonts/` 目錄，包含 DejaVu Sans 字體族與 CID 中文字體來源檔，需在目標伺服器轉換後使用。
 4. **PDF 輸出**：設定 `Content-Disposition: attachment; filename=...; filename*=UTF-8''...` 標頭（同時提供 `filename` 與 `filename*` (RFC 5987) 兩種格式，確保中文檔名正確顯示），檔名為 `ledger_{ledger_id}_{安全化帳本名稱}_{日期時間}.pdf`。設定 `Content-Type: application/pdf`、`Pragma: no-cache`、`Expires: 0`。
-5. **匯出後 audit_log**：記錄 `pdf_export` 動作代碼，detail 帶入 `ledger_id`、`start_date`、`end_date`。
+5. **匯出後 audit_log**：記錄 `pdf_export` 動作代碼，detail 帶入 `ledger_id`、`start_date`、`end_date`，**移到 `$pdf->Output()` 成功後呼叫**。
 6. **錯誤處理**：查詢失敗時 `logError()` 並顯示友善訊息，不中斷頁面；PDF 生成失敗時同樣顯示友善訊息。
 7. **CSRF**：本頁面為唯讀 GET 查詢，無狀態改寫表單，不產生也不驗證 CSRF Token。
 8. **無資料庫變更**：不新增資料庫表，無 migration 需求。
+9. **程式碼重構（DRY）**：將三個檔案（`export_pdf.php`、`pdf_export_html_fallback.php`、`pdf_export_empty.php`）的共用邏輯提取至 `functions.php` 新增函數：
+   - `getLedgerWithAccess($pdo, $ledgerId, $userId)` - 驗證帳本存取權限並回傳帳本資料
+   - `parseDateRange($startDateRaw, $endDateRaw)` - 解析並驗證日期參數，回傳 `[$startDate, $endDate, $error]`
+   - `fetchEntriesWithStats($pdo, $userId, $ledgerId, $startDate, $endDate)` - 查詢明細與彙總，回傳 `[$entries, $monthlyStats, $error]`
+   - `renderPdfExportPage(...)` - 共用 HTML 頁面框架（side nav, header, footer）
 
 ## 設計圖表（Mermaid）
 
@@ -43,24 +48,28 @@ flowchart TD
     H --> I{查詢成功？}
     I -->|否| J[logError，顯示友善訊息]
     I -->|是| K{有記錄？}
-    K -->|否| L[顯示「該期間無記錄」，不產生 PDF]
-    K -->|是| M[產生 PDF（TCPDF）]
-    M --> N{PDF 產生成功？}
-    N -->|否| O[顯示友善錯誤訊息]
-    N -->|是| P[設定 Content-Disposition，輸出 PDF]
-    M -->|TCPDF 載入失敗| Q[提供列印優化 HTML 頁面]
+    K -->|否| L[redirect 到 pdf_export_empty.php 顯示友善提示]
+    K -->|是| M[檢查 TCPDF 是否存在]
+    M -->|否| N[提供列印優化 HTML 頁面 pdf_export_html_fallback.php]
+    M -->|是| O[產生 PDF（TCPDF）]
+    O --> P{PDF 產生成功？}
+    P -->|否| Q[logError，顯示友善訊息]
+    P -->|是| R[設定 Content-Disposition，輸出 PDF]
+    R --> S[PDF 輸出成功後記錄 audit_log]
 ```
 
 ## 程式修改路徑
 
 | 檔案 | 修改內容 |
 | --- | --- |
-| `export_pdf.php`（新增） | PDF 匯出頁面：<br>1. 頁面頂端呼叫 `requireLogin()`，確保使用者已登入。<br>2. 讀取 `ledger_id`（GET），驗證為整數，透過 `ledger_access` 確認使用者有存取權；不合法時 `redirect('./ledgers.php?error=1')`。<br>3. 檢查帳本是否封存（`archived = 0`），若封存則顯示錯誤。<br>4. 讀取 `start_date` 與 `end_date`（GET），驗證為 Y-m-d 格式，經 `isValidDate()` 驗證；格式不符時顯示錯誤訊息；結束日期不得早於開始日期。<br>5. 預設日期：若未提供，使用當月首日與當月最後一日（Asia/Taipei 時區）。<br>6. 查詢 `entries` 表，加入 `INNER JOIN ledger_access la ON la.ledger_id = e.ledger_id AND la.user_id = :user_id` 做 IDOR 防護，`WHERE e.ledger_id = :ledger_id AND e.deleted = 0 AND e.entry_date BETWEEN :startDate AND :endDate`。<br>7. 使用 `strftime('%Y-%m', e.entry_date)` 分組，以 `SUM(CASE WHEN e.type = 'income' THEN e.amount_cents ELSE 0 END)`、`SUM(CASE WHEN e.type = 'expense' THEN e.amount_cents ELSE 0 END)`、`SUM(CASE WHEN e.type = 'transfer' THEN e.amount_cents ELSE 0 END)` 聚合計算各類總額；`SUM(amount_cents)` 需 `(int)` 強制轉型再傳入 `formatCents()`。<br>8. 使用 TCPDF 產生 PDF，包含標題、彙總表、詳細記錄表；金額經 `formatCents()` 格式化，所有輸出經 `h()` 轉義。<br>9. 設定 `Content-Disposition: attachment; filename="..."; filename*=UTF-8''...` 標頭（同時提供 `filename` 與 `filename*` (RFC 5987) 兩種格式，確保中文檔名正確顯示），檔名為 `ledger_{ledger_id}_{安全化帳本名稱}_{日期時間}.pdf`，帳本名稱經 `preg_replace('/[^\p{L}\p{N}_-]/u', '_', ...)` sanitize。<br>10. 匯出成功後，呼叫 `logAudit('pdf_export', 'ledger_id=' . $ledgerId . ' start_date=' . $startDate . ' end_date=' . $endDate)` 記錄至 audit_log。<br>11. 查詢或 PDF 生成失敗時，`logError()` 記錄並顯示友善訊息，不中斷頁面。 |
-| `ledger.php`（修改） | 在「匯出明細 CSV」按鈕旁新增「匯出 PDF 月結單」按鈕，連結至 `export_pdf.php?ledger_id={ledger_id}`。按鈕樣式與既有「匯出明細 CSV」按鈕一致（`.btn`），`viewer` 角色也可見（因為 viewer 僅可檢視報表）。 |
-| `assets/style.css`（修改） | 新增 PDF 匯出頁面樣式（`.pdf-report`、`.pdf-table`、`.pdf-total`、`.pdf-empty`），沿用既有設計系統變數。這些樣式適用於 TCPDF 載入失敗時的列印優化 HTML 頁面。 |
-| `add_entry.php`、`edit_entry.php`、`delete_entry.php`、`dashboard.php` | 無需修改。 |
-| `db.php` | 無需修改（不新增資料庫表，無 migration）。 |
-| 無新增檔案 | 不新增 PHP 頁面以外的檔案，不新增資料庫表，不新增外部依賴。 |
+| `export_pdf.php`（修改） | PDF 匯出主頁面：<br>1. 使用 `getLedgerWithAccess()` 驗證權限。<br>2. 使用 `parseDateRange()` 解析日期。<br>3. 使用 `fetchEntriesWithStats()` 查詢明細與彙總。<br>4. **修正彙總計算邏輯**：移除錯誤的 `while ($stmt->fetch())` 迴圈（cursor 已耗盡），改從 `$monthlyStats` 陣列計算總額。<br>5. 無記錄時 `redirect()` 到 `pdf_export_empty.php`。<br>6. TCPDF 存在時產生 PDF，**`logAudit()` 移到 `$pdf->Output()` 成功後呼叫**。<br>7. PDF 生成失敗時 `logError()` 並顯示友善錯誤頁面（使用 `renderPdfExportPage()`）。<br>8. TCPDF 不存在時 include `pdf_export_html_fallback.php`。 |
+| `pdf_export_html_fallback.php`（修改） | TCPDF 載入失敗時的備援頁面：<br>1. 使用 `getLedgerWithAccess()`、`parseDateRange()`、`fetchEntriesWithStats()` 共用函數。<br>2. **修正日期驗證 bug**：Line 58-60 原本錯誤為 `$endDate = $startDate;`，修正為 `$endDate = $today->format('Y-m-t');`（實際上由 `parseDateRange()` 統一處理）。<br>3. 查詢失敗、日期錯誤時顯示友善錯誤頁面（使用 `renderPdfExportPage()`），不 redirect。<br>4. 彙總計算從 `$monthlyStats` 陣列計算。<br>5. 頁面包含彙總表與詳細記錄表，支援列印為 PDF。 |
+| `pdf_export_empty.php`（修改） | 無記錄時的友善提示頁面：<br>1. 使用 `getLedgerWithAccess()` 驗證權限。<br>2. 使用 `renderPdfExportPage()` 統一頁面框架。<br>3. 顯示「該期間無記錄」與返回連結。 |
+| `functions.php`（新增函數） | 新增 4 個共用函數：<br>- `getLedgerWithAccess(PDO $pdo, int $ledgerId, int $userId): array|false`<br>- `parseDateRange(string $startDateRaw, string $endDateRaw): array`<br>- `fetchEntriesWithStats(PDO $pdo, int $userId, int $ledgerId, string $startDate, string $endDate): array`<br>- `renderPdfExportPage(array $user, string $pageTitle, string $ledgerName, string $subText, string $content, array $actions = []): void` |
+| `ledger.php`（修改） | 在「匯出明細 CSV」按鈕旁新增「匯出 PDF 月結單」按鈕，連結至 `export_pdf.php?ledger_id={ledger_id}`。按鈕樣式與既有「匯出明細 CSV」按鈕一致（`.btn`），`viewer` 角色也可見。 |
+| `assets/style.css` | 已存在 PDF 匯出頁面樣式（`.pdf-report`、`.pdf-table`、`.pdf-total`、`.pdf-empty`），沿用既有設計系統變數。這些樣式適用於 TCPDF 載入失敗時的列印優化 HTML 頁面。 |
+| `lib/tcpdf/`（新增目錄） | 部署 TCPDF 7.0.25（純 PHP 模組化版本），核心檔案：`tcpdf.php`、`tcpdf_autoconfig.php`、`fonts/`、`config/` 等。TCPDF 7.x 使用模組化架構（tc-lib-pdf 系列套件），字體透過 `tc-lib-pdf-font` 套件管理。 |
+| `lib/tcpdf/fonts/`（字體目錄） | 部署 TCPDF 字體目錄以支援中文 PDF 生成：<br>- 來源字體檔（已下載）：DejaVu Sans 字體族（Regular, Bold, Oblique, BoldOblique）、CID 字體（Traditional Chinese cid0ct.ttf、Simplified Chinese cid0cs.ttf，各 ~12MB）<br>- 轉換腳本：`convert_fonts.php`（在目標伺服器執行轉換）<br>- 測試腳本：`test_fonts.php`<br>- 說明文件：`README.md`<br>- 目標伺服器（cPanel PHP 8.1+）需執行字體轉換或安裝 `tc-lib-pdf-font` 套件 |
 
 ## 資料庫變更
 
@@ -71,9 +80,9 @@ flowchart TD
 ### 匯出 PDF 頁面（export_pdf.php）
 
 - **頁面標題**：「匯出 PDF 月結單」
-- **篩選表單**：年份、開始日期、結束日期；預設為當月首日與當月最後一日（Asia/Taipei 時區）。年份/開始日期/結束日期輸入框回填時必須經 `h()` 轉義。
-- **結果顯示**：PDF 檔案直接下載，不在頁面上顯示內容。若無記錄，顯示「該期間無記錄」文字，不產生空白 PDF。
-- **錯誤狀態**：查詢失敗或 PDF 生成失敗時顯示友善錯誤訊息，不中斷頁面。
+- **篩選參數**：`start_date`、`end_date`（GET）；預設為當月首日與當月最後一日（Asia/Taipei 時區）。
+- **結果顯示**：PDF 檔案直接下載，不在頁面上顯示內容。若無記錄，導向 `pdf_export_empty.php` 顯示「該期間無記錄」文字，不產生空白 PDF。
+- **錯誤狀態**：查詢失敗或 PDF 生成失敗時顯示友善錯誤訊息，不中斷頁面（使用共用 `renderPdfExportPage()`）。
 
 ### 帳本詳情頁（ledger.php）
 
@@ -117,18 +126,6 @@ flowchart TD
     padding: var(--space-8);
     color: var(--ink-2);
 }
-/* 年度／季度報表列印樣式，參照 ledger.php */
-@media print {
-    .side, .nav, .ctr-actions, .quick, .font-size-toggle {
-        display: none !important;
-    }
-    .main { margin: 0; padding: 0; }
-    .sheet { width: 100%; max-width: 100%; }
-    body { background: #fff; color: #000; }
-    .plate { border: 1px solid #000; }
-    .v { color: #000; }
-    .report-table, .report-total { page-break-inside: avoid; }
-}
 ```
 
 ## SQL 查詢範例
@@ -167,11 +164,12 @@ ORDER BY e.entry_date DESC, e.id DESC
 | 所有輸出經 h() 轉義 | 無 XSS 風險 | 檢查 PDF 文字，確認特殊字元正確顯示 |
 | 檔名格式正確 | 檔名為 `ledger_{ledger_id}_{安全化帳本名稱}_{日期時間}.pdf` | 檢查下載的檔名 |
 | 中文檔名相容 | Content-Disposition 同時提供 `filename` 與 `filename*` (RFC 5987) | 檢查中文檔名在不同瀏覽器中的顯示 |
-| 無記錄時顯示提示 | 顯示「該期間無記錄」文字，不產生空白 PDF | 查詢無記錄的期間，確認顯示友善訊息 |
+| 無記錄時顯示提示 | 導向 `pdf_export_empty.php` 顯示「該期間無記錄」，不產生空白 PDF | 查詢無記錄的期間，確認顯示友善訊息 |
 | 查詢失敗不中斷頁面 | 錯誤寫入 `error.log`，顯示友善訊息 | 模擬資料庫錯誤，確認頁面仍渲染 |
 | 與現有功能並存 | 不破壞現有 `ledger.php`、`export_csv.php` 等功能 | 確認既有功能正常運作 |
 | 日期參數不合法 | 顯示友善錯誤訊息 | 輸入無效日期格式，確認顯示錯誤訊息 |
 | PDF 生成失敗 | 顯示友善錯誤訊息，不中斷頁面 | 模擬 TCPDF 載入失敗，確認顯示友善訊息 |
+| TCPDF 部署正確 | `./lib/tcpdf/tcpdf.php` 存在 | 檢查檔案存在 |
 
 ## 非本期範圍（Out of Scope）
 
@@ -204,7 +202,62 @@ ORDER BY e.entry_date DESC, e.id DESC
 | 階段 | 狀態 | 日期 | 備註 |
 | --- | --- | --- | --- |
 | Spec（規格）審查 | 已通過 | 2026-11-22 | 與 Planning 與現有程式碼一致 |
-| Code（程式）審查 | 待審查 | — | 檢查 `export_pdf.php` 新增頁面、查詢邏輯、相容性 |
+| Code（程式）審查 | 待審查 | — | 檢查 `export_pdf.php` 修正、共用函數、TCPDF 部署、相容性 |
 | Security（資安）審查 | 待審查 | — | 檢查 XSS（`h()` 轉義）、SQL 注入（PDO 預備陳述式）、IDOR（`ledger_access` 權限）、CSRF（唯讀查詢不需要） |
 
-實作階段完成後，需在同一份 Design.md 補上「實際變更」與「驗證證據」，並執行實作審查（Spec → Code → Security）。
+## 實作審查記錄（實作階段）
+
+| 階段 | 狀態 | 日期 | 備註 |
+| --- | --- | --- | --- |
+| Spec（規格）審查 | 待審查 | — | 對照 Planning 驗收條件 |
+| Code（程式）審查 | 待審查 | — | 檢查程式碼品質、命名、錯誤處理、效能、測試覆蓋、DRY 原則 |
+| Security（資安）審查 | 待審查 | — | 檢查 SQL Injection、XSS、CSRF、權限繞過、資料外洩、audit_log 時機 |
+
+## 實際變更記錄
+
+### 新增檔案
+1. `lib/tcpdf/` - TCPDF 7.0.25 完整庫（從 https://github.com/tecnickcom/TCPDF tag 7.0.24，專案 VERSION 為 7.0.25）
+   - 核心檔案：`tcpdf.php` (322KB)、`tcpdf_autoconfig.php`、config/ 目錄等
+2. `lib/tcpdf/fonts/` - TCPDF 字體目錄（支援中文 PDF 生成）
+   - 來源字體檔（已從 tc-font-mirror 下載）：
+     - `DejaVuSans.ttf` (757KB) - Unicode 字體，支援基本中文
+     - `DejaVuSans-Bold.ttf` (706KB)
+     - `DejaVuSans-Oblique.ttf` (635KB)
+     - `DejaVuSans-BoldOblique.ttf` (643KB)
+     - `cid0ct.ttf` (12.3MB) - Traditional Chinese CID 字體
+     - `cid0cs.ttf` (12.3MB) - Simplified Chinese CID 字體
+   - 轉換腳本：`convert_fonts.php` - 在目標伺服器執行 TTF 轉 TCPDF 格式
+   - 測試腳本：`test_fonts.php` - 驗證字體可用性
+   - 說明文件：`README.md` - 字體部署與轉換說明
+   - **注意**：TCPDF 7.x 模組化版本需在目標伺服器（cPanel PHP 8.1+）執行字體轉換，或安裝 `tc-lib-pdf-font` 套件（需 Composer）
+
+### 修改檔案
+1. `export_pdf.php` - 重構使用共用函數、修正彙總計算邏輯、移動 audit_log 時機、統一錯誤處理
+2. `pdf_export_html_fallback.php` - 重構使用共用函數、修正日期驗證 bug、統一錯誤處理、新增彙總表顯示
+3. `pdf_export_empty.php` - 重構使用共用函數、統一頁面框架
+4. `functions.php` - 新增 4 個共用函數（`getLedgerWithAccess`、`parseDateRange`、`fetchEntriesWithStats`、`renderPdfExportPage`）
+5. `docs/[#8]_pdf-export/Design.md` - 更新版本至 v1.2，記錄實際實作細節、TCPDF 路徑與版本、重構後的共用函數、審查記錄
+
+### 修正的具體 Bug
+1. **export_pdf.php Line 135-150 彙總計算邏輯錯誤**：原本使用 `while ($row = $stmt->fetch())` 但在 try block 結束後 cursor 已耗盡，且 `$totalIncomeCents` 等變數已歸零。修正為從 `$monthlyStats` 陣列以 foreach 計算總額。
+2. **pdf_export_html_fallback.php Line 58-60 日期驗證 bug**：原本 `$endDate = $startDate;` 應為 `$endDate = $today->format('Y-m-t');`（實際上已由 `parseDateRange()` 統一修正）。
+3. **audit_log 記錄時機**：原本在設定 header 後、Output 前呼叫，修正為 `$pdf->Output()` 成功後呼叫，確保僅在實際下載成功時記錄。
+4. **程式碼重複**：三個檔案大量重複的權限驗證、日期解析、查詢邏輯、頁面框架，提取至 `functions.php` 4 個共用函數。
+
+## 驗證證據
+
+- [ ] TCPDF 存在於 `./lib/tcpdf/tcpdf.php`（版本 7.0.25）
+- [ ] TCPDF 字體目錄存在於 `./lib/tcpdf/fonts/`
+- [ ] 來源字體檔存在：DejaVu Sans 4 種變體、cid0ct.ttf、cid0cs.ttf
+- [ ] 轉換腳本存在：`convert_fonts.php`、`test_fonts.php`
+- [ ] 目標伺服器執行字體轉換後，DejaVu Sans 字體可用
+- [ ] 目標伺服器執行字體轉換後，CID 字體可用（或安裝 tc-lib-pdf-font）
+- [ ] `export_pdf.php?ledger_id=1` 可正常下載 PDF
+- [ ] PDF 內容包含：帳本名稱、查詢期間、收入/支出/轉帳/結餘、詳細記錄列表
+- [ ] PDF 中文內容正確顯示（使用 DejaVu Sans 或 CID 字體）
+- [ ] 金額格式正確（formatCents）、中文檔名正確（filename*）
+- [ ] 無記錄時導向 `pdf_export_empty.php` 顯示友善提示
+- [ ] 查詢失敗顯示友善錯誤頁面（不 redirect）
+- [ ] PDF 生成失敗顯示友善錯誤頁面
+- [ ] 程式碼無重複邏輯（共用函數化）
+- [ ] Design.md 更新完整

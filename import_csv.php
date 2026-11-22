@@ -86,7 +86,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             // 開始匯入
                             $successCount = 0;
                             $failedCount  = 0;
-                            $failErrors   = [];
+                            $errors       = [];    // 導致該行跳過的錯誤
+                            $warnings     = [];    // 該行仍成功但有提示的警告
 
                             // 開啟 CSV 檔案，逐行讀取（不儲存於伺服器，直接由 tmp_name 讀取）
                             $handle = @fopen($tmpName, 'r');
@@ -96,12 +97,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $lineNum     = 0;
                                 $headerSkipped = false;
                                 $bomRemoved    = false;
+                                $dataRowCount  = 0;              // 資料列計數（不含標題行）
+                                const MAX_CSV_ROWS = 10000;      // 最大資料列數，防禦 DoS
 
                                 // CSV 公式注入防護前綴字元（同 export_csv.php）
                                 $formulaPrefixes = ['=', '+', '-', '@', "\t", "\r"];
 
                                 while (($row = fgetcsv($handle)) !== false) {
                                     $lineNum++;
+
+                                    // 最大資料列數限制（不含標題行），防禦超大檔 DoS
+                                    if ($headerSkipped) {
+                                        $dataRowCount++;
+                                        if ($dataRowCount > MAX_CSV_ROWS) {
+                                            $error = 'CSV 資料列數超過上限（' . MAX_CSV_ROWS . ' 筆），請拆分檔案後再匯入。';
+                                            break;
+                                        }
+                                    }
 
                                     // 第一列視為標題行並跳過
                                     if (!$headerSkipped) {
@@ -123,14 +135,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     }
 
                                     // 欄位數量驗證：標準 6 欄位（日期、類型、金額、分類、記錄者、備註）
-                                    // 不足 6 欄位補空字串，超過 6 欄位截斷並記錄警告
+                                    // 不足 6 欄位補空字串，超過 6 欄位截斷並記錄警告（不計入失敗筆數）
                                     $fieldCount = count($row);
                                     if ($fieldCount < 6) {
                                         $row = array_pad($row, 6, '');
-                                        $failErrors[] = '第 ' . $lineNum . ' 行：欄位不足 6 個（已自動補空）';
+                                        if (count($warnings) < 100) {
+                                            $warnings[] = '第 ' . $lineNum . ' 行：欄位不足 6 個（已自動補空）';
+                                        }
                                     } elseif ($fieldCount > 6) {
                                         $row = array_slice($row, 0, 6);
-                                        $failErrors[] = '第 ' . $lineNum . ' 行：欄位超過 6 個（已截斷多餘欄位）';
+                                        if (count($warnings) < 100) {
+                                            $warnings[] = '第 ' . $lineNum . ' 行：欄位超過 6 個（已截斷多餘欄位）';
+                                        }
                                     }
 
                                     // 取得欄位
@@ -179,8 +195,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     }
 
                                     // 備註：CSV 公式注入防護
-                                    if ($rowError === '' && $note !== '' && in_array($note[0], $formulaPrefixes, true)) {
+                                    if ($rowError === '' && $note !== '' && strlen($note) > 0 && in_array($note[0], $formulaPrefixes, true)) {
                                         $note = "'" . $note;
+                                    }
+
+                                    // 記錄者：CSV 公式注入防護（雖然寫入 user_id 為整數，但為一致性仍處理）
+                                    if ($rowError === '' && $recorder !== '' && strlen($recorder) > 0 && in_array($recorder[0], $formulaPrefixes, true)) {
+                                        $recorder = "'" . $recorder;
                                     }
 
                                     // 記錄者驗證：若提供則查詢 users 表驗證存在性；不存在或空值 → 使用目前登入使用者
@@ -193,11 +214,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                             if ($userRow !== false) {
                                                 $entryUserId = (int) $userRow['id'];
                                             } else {
-                                                // 記錄者不存在，使用登入使用者（不視為錯誤，只記錄警告，亦受 100 筆限制）
-                                                if (count($failErrors) < 100) {
-                                                    $failErrors[] = '第 ' . $lineNum . ' 行：記錄者 "' . $recorder . '" 不存在，改用目前登入使用者';
-                                                } elseif (count($failErrors) === 100) {
-                                                    $failErrors[] = '... 其餘錯誤略過（超過 100 筆上限）';
+                                                // 記錄者不存在，使用登入使用者（不視為錯誤，只記錄警告，受 100 筆限制）
+                                                if (count($warnings) < 100) {
+                                                    $warnings[] = '第 ' . $lineNum . ' 行：記錄者 "' . $recorder . '" 不存在，改用目前登入使用者';
                                                 }
                                             }
                                         }
@@ -206,11 +225,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     if ($rowError !== '') {
                                         $failedCount++;
                                         // 失敗原因最多記錄 100 筆（超過則不再加入陣列，但仍繼續計數 failedCount）
-                                        if (count($failErrors) < 100) {
-                                            $failErrors[] = '第 ' . $lineNum . ' 行：' . $rowError;
-                                        } elseif (count($failErrors) === 100) {
+                                        if (count($errors) < 100) {
+                                            $errors[] = '第 ' . $lineNum . ' 行：' . $rowError;
+                                        } elseif (count($errors) === 100) {
                                             // 第 101 筆錯誤時，加入略過提示並停止記錄詳細錯誤
-                                            $failErrors[] = '... 其餘錯誤略過（超過 100 筆上限）';
+                                            $errors[] = '... 其餘錯誤略過（超過 100 筆上限）';
                                         }
                                         continue;
                                     }
@@ -248,9 +267,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 logAudit('csv_import', 'ledger_id=' . $ledgerId . ' success=' . $successCount . ' failed=' . $failedCount);
 
                                 $importResult = [
-                                    'success' => $successCount,
-                                    'failed'  => $failedCount,
-                                    'errors'  => $failErrors,
+                                    'success'   => $successCount,
+                                    'failed'    => $failedCount,
+                                    'errors'    => $errors,
+                                    'warnings'  => $warnings,
                                 ];
 
                                 if ($failedCount === 0) {
@@ -321,15 +341,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <p class="alert success" role="status"><?php echo h($success); ?></p>
                 <?php endif; ?>
 
-                <?php if ($importResult !== null && $importResult['failed'] > 0): ?>
-                    <div class="import-errors" role="region" aria-label="匯入錯誤詳情">
-                        <h2>失敗記錄詳情（共 <?php echo h((string) $importResult['failed']); ?> 筆）</h2>
-                        <ul class="import-error-list">
-                            <?php foreach ($importResult['errors'] as $err): ?>
-                                <li><?php echo h($err); ?></li>
-                            <?php endforeach; ?>
-                        </ul>
-                    </div>
+                <?php if ($importResult !== null && ($importResult['failed'] > 0 || !empty($importResult['warnings']))): ?>
+                    <?php if ($importResult['failed'] > 0): ?>
+                        <div class="import-errors" role="region" aria-label="匯入錯誤詳情">
+                            <h2>失敗記錄詳情（共 <?php echo h((string) $importResult['failed']); ?> 筆）</h2>
+                            <ul class="import-error-list">
+                                <?php foreach ($importResult['errors'] as $err): ?>
+                                    <li><?php echo h($err); ?></li>
+                                <?php endforeach; ?>
+                            </ul>
+                        </div>
+                    <?php endif; ?>
+                    <?php if (!empty($importResult['warnings'])): ?>
+                        <div class="import-warnings" role="region" aria-label="匯入警告詳情">
+                            <h2>警告（共 <?php echo h((string) count($importResult['warnings'])); ?> 筆，不影響匯入）</h2>
+                            <ul class="import-error-list">
+                                <?php foreach ($importResult['warnings'] as $warn): ?>
+                                    <li><?php echo h($warn); ?></li>
+                                <?php endforeach; ?>
+                            </ul>
+                        </div>
+                    <?php endif; ?>
                 <?php endif; ?>
 
                 <form method="POST" action="./import_csv.php?ledger_id=<?php echo h((string) $ledgerId); ?>" autocomplete="off" class="form import-form" enctype="multipart/form-data">

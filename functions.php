@@ -385,3 +385,208 @@ function getBudgetPercent(int $expenseCents, int $budgetCents): int
     }
     return (int) floor($expenseCents * 100 / $budgetCents);
 }
+
+/**
+ * 驗證使用者對帳本的存取權限並回傳帳本資料。
+ *
+ * @param PDO $pdo
+ * @param int $ledgerId
+ * @param int $userId
+ * @return array|false 帳本資料陣列 (name, archived, role)，失敗回傳 false
+ */
+function getLedgerWithAccess(PDO $pdo, int $ledgerId, int $userId): array|false
+{
+    $stmt = $pdo->prepare('
+        SELECT l.name, l.archived, la.role
+        FROM ledgers l
+        INNER JOIN ledger_access la ON la.ledger_id = l.id
+        WHERE l.id = :ledger_id
+          AND la.user_id = :user_id
+        LIMIT 1
+    ');
+    $stmt->execute([':ledger_id' => $ledgerId, ':user_id' => $userId]);
+    return $stmt->fetch() ?: false;
+}
+
+/**
+ * 解析並驗證日期參數，回傳 [$startDate, $endDate, $error]。
+ *
+ * @param string $startDateRaw
+ * @param string $endDateRaw
+ * @return array [startDate, endDate, errorMessage]
+ */
+function parseDateRange(string $startDateRaw, string $endDateRaw): array
+{
+    $today = new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei'));
+    $error = '';
+
+    if (!is_string($startDateRaw) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDateRaw) || !isValidDate($startDateRaw)) {
+        $startDate = $today->format('Y-m-01');
+    } else {
+        $startDate = $startDateRaw;
+    }
+
+    if (!is_string($endDateRaw) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDateRaw) || !isValidDate($endDateRaw)) {
+        $endDate = $today->format('Y-m-t');
+    } else {
+        $endDate = $endDateRaw;
+    }
+
+    if ($endDate < $startDate) {
+        $error = '結束日期不得早於開始日期。';
+    }
+
+    return [$startDate, $endDate, $error];
+}
+
+/**
+ * 查詢明細與彙總資料，回傳 [$entries, $monthlyStats, $error]。
+ *
+ * @param PDO $pdo
+ * @param int $userId
+ * @param int $ledgerId
+ * @param string $startDate
+ * @param string $endDate
+ * @return array [entries, monthlyStats, errorMessage]
+ */
+function fetchEntriesWithStats(PDO $pdo, int $userId, int $ledgerId, string $startDate, string $endDate): array
+{
+    $entries = [];
+    $monthlyStats = [];
+    $error = '';
+
+    // 查詢詳細記錄
+    try {
+        $stmt = $pdo->prepare('
+            SELECT e.entry_date, e.type, e.amount_cents, e.category, e.note, u.username
+            FROM entries e
+            INNER JOIN ledger_access la ON la.ledger_id = e.ledger_id AND la.user_id = :user_id
+            INNER JOIN users u ON u.id = e.user_id
+            WHERE e.ledger_id = :ledger_id
+              AND e.deleted = 0
+              AND e.entry_date BETWEEN :startDate AND :endDate
+            ORDER BY e.entry_date DESC, e.id DESC
+        ');
+        $stmt->execute([
+            ':user_id'   => $userId,
+            ':ledger_id' => $ledgerId,
+            ':startDate' => $startDate,
+            ':endDate'   => $endDate,
+        ]);
+        $entries = $stmt->fetchAll();
+    } catch (Throwable $e) {
+        logError('fetchEntriesWithStats detail query failed: ' . $e->getMessage());
+        $error = '報表查詢失敗，請稍後再試。';
+        return [[], [], $error];
+    }
+
+    // 查詢月度彙總
+    try {
+        $stmt = $pdo->prepare('
+            SELECT
+                strftime(\'%Y-%m\', e.entry_date) AS ym,
+                SUM(CASE WHEN e.type = \'income\' THEN e.amount_cents ELSE 0 END) AS income_cents,
+                SUM(CASE WHEN e.type = \'expense\' THEN e.amount_cents ELSE 0 END) AS expense_cents,
+                SUM(CASE WHEN e.type = \'transfer\' THEN e.amount_cents ELSE 0 END) AS transfer_cents
+            FROM entries e
+            INNER JOIN ledger_access la ON la.ledger_id = e.ledger_id AND la.user_id = :user_id
+            WHERE e.ledger_id = :ledger_id
+              AND e.deleted = 0
+              AND e.entry_date BETWEEN :startDate AND :endDate
+            GROUP BY ym
+            ORDER BY ym
+        ');
+        $stmt->execute([
+            ':user_id'   => $userId,
+            ':ledger_id' => $ledgerId,
+            ':startDate' => $startDate,
+            ':endDate'   => $endDate,
+        ]);
+        $monthlyStats = $stmt->fetchAll();
+    } catch (Throwable $e) {
+        logError('fetchEntriesWithStats summary query failed: ' . $e->getMessage());
+        $error = '報表查詢失敗，請稍後再試。';
+        return [[], [], $error];
+    }
+
+    return [$entries, $monthlyStats, $error];
+}
+
+/**
+ * 輸出共用的頁面框架（side nav, header, footer）。
+ *
+ * @param array $user 當前使用者資料
+ * @param string $pageTitle 頁面標題
+ * @param string $ledgerName 帳本名稱
+ * @param string $subText 副標題文字（如查詢期間）
+ * @param string $content 主要內容 HTML
+ * @param array $actions 動作按鈕陣列 [['text' => '...', 'href' => '...', 'class' => '...'], ...]
+ */
+function renderPdfExportPage(array $user, string $pageTitle, string $ledgerName, string $subText, string $content, array $actions = []): void
+{
+    $defaultActions = [
+        ['text' => '返回匯出頁面', 'href' => './export_pdf.php?ledger_id=' . h((string) ($_GET['ledger_id'] ?? '')), 'class' => 'btn primary'],
+        ['text' => '返回帳本詳情', 'href' => './ledger.php?ledger_id=' . h((string) ($_GET['ledger_id'] ?? '')), 'class' => 'btn secondary'],
+    ];
+    $actions = $actions ?: $defaultActions;
+    ?>
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><?php echo h($pageTitle); ?> - 全家人記帳系統</title>
+    <link rel="stylesheet" href="./assets/style.css?v=20261115-8">
+</head>
+<body>
+    <div class="app">
+        <aside class="side">
+            <a class="brand" href="./dashboard.php">
+                <span class="brand-kicker">FAMILY VOUCHER</span>
+                <b>全家人記帳系統</b>
+                <span class="brand-mark" aria-hidden="true"><i class="in"></i><i class="out"></i></span>
+            </a>
+            <nav class="nav" aria-label="主要導覽">
+                <p class="nav-h">帳務</p>
+                <a class="nav-item" href="./dashboard.php">儀表板</a>
+                <a class="nav-item" href="./ledgers.php">帳本列表</a>
+                <a class="nav-item" href="./change_password.php">變更密碼</a>
+                <?php if ($user['role'] === 'admin'): ?>
+                    <p class="nav-h">後台</p>
+                    <a class="nav-item" href="./admin/users.php">使用者管理</a>
+                    <a class="nav-item" href="./admin/ledgers.php">帳本管理</a>
+                    <a class="nav-item" href="./admin/audit_log.php">操作紀錄</a>
+                <?php endif; ?>
+            </nav>
+            <div class="side-foot">
+                <div class="who"><b><?php echo h($user['username']); ?></b><span class="role-chip"><?php echo h($user['role']); ?></span></div>
+                <button type="button" class="font-size-toggle" id="fontSizeToggle" title="切換大字模式">大字 A</button>
+                <a class="logout" href="./logout.php">登出</a>
+            </div>
+        </aside>
+
+        <div class="main">
+            <main class="sheet">
+                <div class="page-head">
+                    <div>
+                        <h1><?php echo h($pageTitle); ?></h1>
+                        <p class="sub">帳本：<strong><?php echo h($ledgerName); ?></strong><?php echo $subText ? '　·　' . $subText : ''; ?></p>
+                    </div>
+                </div>
+
+                <?php echo $content; ?>
+
+                <?php if (!empty($actions)): ?>
+                    <?php foreach ($actions as $action): ?>
+                        <p><a href="<?php echo h($action['href']); ?>" class="<?php echo h($action['class']); ?>"><?php echo h($action['text']); ?></a></p>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </main>
+        </div>
+    </div>
+
+    <script src="./assets/app.js"></script>
+</body>
+</html>
+    <?php
+}

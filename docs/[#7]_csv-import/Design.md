@@ -5,10 +5,10 @@
 | 項目 | 內容 |
 | --- | --- |
 | 文件名稱 | Design: 匯入 CSV 明細記錄（批次匯入收支記錄） |
-| 版本 | v1.1 |
+| 版本 | v1.2 |
 | 建立日期 | 2026-11-22 |
-| 更新日期 | 2026-11-22 |
-| 變更摘要 | v1.1 修正規格差異：ledger.php 匯入按鈕已存在、補充 CSV 公式注入防護、檔案 MIME 驗證、BOM 處理、欄位數驗證、記錄者查詢驗證、錯誤原因限制筆數；依既有程式碼模式細化實作細節 |
+| 更新日期 | 2026-11-23 |
+| 變更摘要 | v1.2 同步實作驗證結果：獨立第三方審查通過（Spec/Code/Security）、複查確認兩項阻塞條件修正完成（ATTR_EMULATE_PREPARES=false 已設定、CSV 最大行數 10000 限制已加入）；更新所有驗證證據為通過 |
 
 ## 來源 Planning 與需求摘要
 
@@ -167,29 +167,30 @@ flowchart TD
 
 | 檔案 | 變更內容 |
 | --- | --- |
-| `import_csv.php`（新增） | 待實作（參考上方「程式修改路徑」詳細規格） |
+| `import_csv.php`（新增） | **已完成**：完整實作 CSV 匯入功能（檔案驗證、逐行解析、驗證邏輯、寫入 entries、審計日誌、結果摘要） |
 | `ledger.php` | **已完成**（line 494-498 已有「匯入 CSV 明細」按鈕，無需修改） |
-| `assets/style.css` | 新增匯入頁面樣式（`.import-form`、`.import-result`、`.import-error`），沿用既有樣式，待實作 |
+| `assets/style.css` | **已完成**：沿用既有 `.form`、`.btn`、`.alert`、`.input`、`.table` 樣式，無需新增專用類別 |
 | 無新增資料表 | 不涉及資料庫結構變更，無 migration |
 
 ## 驗證證據（實作階段）
 
 | 驗收項 | 驗證結果 |
 | --- | --- |
-| 匯入頁面存在 | 待實作階段驗證 |
-| 帳本詳情頁按鈕 | **已驗證完成**（ledger.php line 494-498 已存在） |
-| 權限控管 | 待實作階段驗證 |
-| CSRF 防護 | 待實作階段驗證 |
-| 檔案限制（含 MIME 驗證） | 待實作階段驗證 |
-| BOM 處理 | 待實作階段驗證 |
-| 欄位數驗證 | 待實作階段驗證 |
-| 逐行驗證 | 待實作階段驗證 |
-| 記錄者驗證（查詢 users 表） | 待實作階段驗證 |
-| CSV 公式注入防護 | 待實作階段驗證 |
-| 金額儲存（整數分） | 待實作階段驗證 |
-| 結果摘要（失敗原因 ≤100 筆） | 待實作階段驗證 |
-| audit_log 記錄 | 待實作階段驗證 |
-| 與現有功能並存 | 待實作階段驗證 |
+| 匯入頁面存在 | ✅ 通過（import_csv.php 完整實作） |
+| 帳本詳情頁按鈕 | ✅ 通過（ledger.php line 494-498 已存在） |
+| 權限控管 | ✅ 通過（ledger_access IDOR 防護、owner/member 可寫、viewer/封存帳本阻擋） |
+| CSRF 防護 | ✅ 通過（表單 csrf_token + checkCsrf() 驗證、hash_equals 恆時比較） |
+| 檔案限制（含 MIME 驗證） | ✅ 通過（.csv、≤2MB、finfo_file MIME 驗證、UPLOAD_ERR_OK、不落地） |
+| BOM 處理 | ✅ 通過（標題行優先檢查 \xEF\xBB\xBF 並 substr 移除） |
+| 欄位數驗證 | ✅ 通過（6 欄位標準、array_pad 補空、array_slice 截斷、警告不計失敗） |
+| 逐行驗證 | ✅ 通過（日期 isValidDate、類型中英對照、金額 toCents 非負、分類 ≤50 字元） |
+| 記錄者驗證（查詢 users 表） | ✅ 通過（username 查 users.id、不存在/空值 → 登入用戶 + 警告） |
+| CSV 公式注入防護 | ✅ 通過（category/note/recorder 開頭 =,+,-,@,\t,\r 前綴單引號） |
+| 金額儲存（整數分） | ✅ 通過（amount_cents 整數、formatCents 顯示、無 FLOAT） |
+| 結果摘要（錯誤/警告各 ≤100 筆） | ✅ 通過（errors/warnings 分離、超限顯示略過提示） |
+| audit_log 記錄 | ✅ 通過（logAudit csv_import 含 ledger_id/success/failed） |
+| 最大行數限制 (10,000) | ✅ 通過（dataRowCount 計數、超限 break 中止、錯誤訊息） |
+| 與現有功能並存 | ✅ 通過（ledger.php、export_csv.php、add_entry.php 運作正常） |
 
 ## 設計審查記錄（設計階段）
 
@@ -198,3 +199,12 @@ flowchart TD
 | Spec（規格）審查 | **條件通過（v1.1 已修正）** | 2026-11-22 | 已修正：ledger.php 按鈕既存、補充 CSV 公式注入防護、MIME 驗證、BOM 處理、欄位數驗證、記錄者查詢驗證、錯誤原因限制 100 筆 |
 | Code（程式）審查 | 待實作後審查 | - | 實作時須遵循 `export_csv.php`、`add_entry.php` 既有模式 |
 | Security（資安）審查 | **條件通過（v1.1 已修正）** | 2026-11-22 | 已補強：檔案 MIME 驗證、CSV 公式注入防護、記錄者查詢驗證、錯誤資訊不外洩 |
+
+## 實作階段審查記錄
+
+| 階段 | 狀態 | 日期 | 審查方式 | 備註 |
+| --- | --- | --- | --- | --- |
+| Spec（規格）審查 | ✅ 通過 | 2026-11-23 | 獨立第三方子代理 | 實作完全符合 Design.md v1.1、Planning.md AC 1-11 |
+| Code（程式）審查 | ✅ 通過 | 2026-11-23 | 獨立第三方子代理 | 遵循既有模式、PDO 預備陳述式、h() 輸出、錯誤/警告分離、記憶體控制 |
+| Security（資安）審查 | ✅ 通過 | 2026-11-23 | 獨立第三方子代理 | SQLi/XSS/CSRF/IDOR/檔案上傳/公式注入/權限/審計全防護到位 |
+| **複查（阻塞條件驗證）** | ✅ 通過 | 2026-11-23 | 獨立第三方子代理 | ATTR_EMULATE_PREPARES=false 已設定 (db.php:39)；CSV 最大 10000 行限制已實作 (import_csv.php:101,110-116) |

@@ -336,3 +336,52 @@ function clearLoginAttempts(string $identifier): void
         ':updated_at' => (new DateTime('now'))->format('Y-m-d H:i:s'),
     ]);
 }
+
+/**
+ * 計算預算狀態（類別預算 / 帳本預算共用）
+ *
+ * 整數交叉相乘判定，避免浮點誤差：
+ * - expense * 100 >= budget * 100  → danger (>=100%)
+ * - expense * 100 >= budget * 80   → warn   (>=80%)
+ * - 其他                           → ok
+ *
+ * @param int $expenseCents 已支出金額（整數分）
+ * @param int $budgetCents  預算金額（整數分，>0）
+ * @return string 'ok' | 'warn' | 'danger'
+ */
+function calcBudgetStatus(int $expenseCents, int $budgetCents): string
+{
+    if ($budgetCents <= 0) {
+        return 'ok';
+    }
+    if ($expenseCents * 100 >= $budgetCents * 100) {
+        return 'danger';
+    }
+    if ($expenseCents * 100 >= $budgetCents * 80) {
+        return 'warn';
+    }
+    return 'ok';
+}
+
+/**
+ * 取得預算狀態標籤文字
+ */
+function getBudgetStatusLabel(string $status): string
+{
+    return match ($status) {
+        'danger' => '已超過預算',
+        'warn'   => '接近預算上限',
+        default  => '預算尚充足',
+    };
+}
+
+/**
+ * 取得預算使用率百分比（整數，向下取整）
+ */
+function getBudgetPercent(int $expenseCents, int $budgetCents): int
+{
+    if ($budgetCents <= 0) {
+        return 0;
+    }
+    return (int) floor($expenseCents * 100 / $budgetCents);
+}

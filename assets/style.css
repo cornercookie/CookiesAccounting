@@ -821,3 +821,39 @@ table .receipt-col .meta {
 }
 
 
+/* ============================================
+   類別預算狀態（Category Budget Status）
+   ============================================ */
+
+.category-budget-status {
+    margin: var(--space-6) 0;
+}
+.category-budget-status h3 {
+    margin: 0 0 var(--space-3) 0;
+    font-size: var(--text-lg);
+}
+
+/* 類別標籤（dashboard 橫幅用） */
+.category-tag {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    border-radius: var(--radius);
+    padding: 1px 6px;
+    margin: 0 var(--space-2);
+    border: 1px solid var(--line);
+    background: var(--paper-3);
+    color: var(--ink-2);
+}
+/* 使用現有狀態色變數（已定義 --amber #8a6d1a, --amber-tint #f3ead0, --red-tint #f6e3df, --red #c0392b） */
+.budget-banner.warn .category-tag   { border-color: var(--amber); background: var(--amber-tint); color: var(--amber); }
+.budget-banner.danger .category-tag { border-color: var(--red);   background: var(--red-tint);   color: var(--red); }
+
+/* 手機版調整 */
+@media (max-width: 720px) {
+    .category-budget-status { margin: var(--space-5) 0; }
+    .budget-banner.category-budget { padding: var(--space-3); font-size: var(--text-xs); }
+}
+
+

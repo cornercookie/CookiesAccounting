@@ -233,6 +233,90 @@ try {
                 </div>
                 <?php endforeach; ?>
 
+                <?php
+                // === 類別預算橫幅（新增）===
+                // 批次查詢避免 N+1：先收集所有可存取帳本 ID，再單次查詢類別預算與支出
+                $accessibleLedgerIds = array_column($ledgerSummaries, 'id');
+                $categoryBudgetBanners = [];
+
+                if ($accessibleLedgerIds && $isCurrentMonth) {
+                    // 建立命名佔位符：:lid0, :lid1, ... 避免位置/命名混用
+                    $lidParams = [];
+                    foreach ($accessibleLedgerIds as $i => $lid) {
+                        $lidParams[":lid$i"] = $lid;
+                    }
+                    $placeholders = implode(',', array_keys($lidParams));
+
+                    // 查詢所有帳本的啟用中類別預算（單次查詢，純命名佔位符）
+                    $cbStmt = $pdo->prepare("
+                        SELECT ledger_id, category, monthly_budget_cents
+                        FROM category_budgets
+                        WHERE ledger_id IN ($placeholders) AND is_active = 1
+                    ");
+                    $cbStmt->execute($lidParams);
+                    $allCatBudgets = [];
+                    while ($row = $cbStmt->fetch()) {
+                        $lid = (int) $row['ledger_id'];
+                        $allCatBudgets[$lid][$row['category']] = (int) $row['monthly_budget_cents'];
+                    }
+
+                    // 查詢所有帳本各類別本月支出（單次查詢，純命名佔位符）
+                    $catExpStmt = $pdo->prepare("
+                        SELECT ledger_id, category, COALESCE(SUM(amount_cents), 0) AS expense_cents
+                        FROM entries
+                        WHERE ledger_id IN ($placeholders)
+                          AND deleted = 0
+                          AND type = 'expense'
+                          AND entry_date BETWEEN :ms AND :me
+                        GROUP BY ledger_id, category
+                    ");
+                    $expParams = array_merge($lidParams, [':ms' => $monthStart, ':me' => $monthEnd]);
+                    $catExpStmt->execute($expParams);
+                    $allCatExpenses = [];
+                    while ($row = $catExpStmt->fetch()) {
+                        $lid = (int) $row['ledger_id'];
+                        $allCatExpenses[$lid][$row['category']] = (int) $row['expense_cents'];
+                    }
+
+                    // 建立 ledger_id -> name 對照
+                    $ledgerNames = [];
+                    foreach ($ledgerSummaries as $ls) {
+                        $ledgerNames[(int) $ls['id']] = $ls['name'];
+                    }
+
+                    // 比較並產生橫幅資料（使用共用函數 calcBudgetStatus/getBudgetPercent/getBudgetStatusLabel）
+                    foreach ($allCatBudgets as $lid => $catBudgets) {
+                        $catExpenses = $allCatExpenses[$lid] ?? [];
+                        $ledgerName = $ledgerNames[$lid] ?? '';
+                        foreach ($catBudgets as $cat => $budgetCents) {
+                            $expenseCents = $catExpenses[$cat] ?? 0;
+                            if ($budgetCents > 0) {
+                                $status = calcBudgetStatus($expenseCents, $budgetCents);
+                                if ($status !== 'ok') {
+                                    $categoryBudgetBanners[] = [
+                                        'ledger_name' => $ledgerName,
+                                        'category' => $cat,
+                                        'status' => $status,
+                                        'percent' => getBudgetPercent($expenseCents, $budgetCents),
+                                        'expense' => $expenseCents,
+                                        'budget' => $budgetCents,
+                                    ];
+                                }
+                            }
+                        }
+                    }
+                }
+                ?>
+                <?php foreach ($categoryBudgetBanners as $cbb): ?>
+                <div class="budget-banner budget-banner-<?php echo h($cbb['status']); ?> category-budget" role="alert">
+                    <strong><?php echo h($cbb['ledger_name']); ?></strong>：
+                    <span class="category-tag"><?php echo h($cbb['category']); ?></span>
+                    類別預算已使用 <strong class="num"><?php echo h((string) $cbb['percent']); ?>%</strong>：
+                    <?php echo getBudgetStatusLabel($cbb['status']); ?>
+                    （預算 <?php echo h(formatCents($cbb['budget'])); ?> 元，已支出 <strong class="num"><?php echo h(formatCents($cbb['expense'])); ?></strong> 元）
+                </div>
+                <?php endforeach; ?>
+
                 <?php if (!$summaryError && !empty($ledgerSummaries)): ?>
                 <div class="summary-total plates">
                     <div class="plate"><small>全家本月總收入</small><div class="v">+<?php echo h(formatCents($totalIncome)); ?><small> 元</small></div></div>

@@ -217,6 +217,29 @@ SQL);
     CREATE INDEX IF NOT EXISTS idx_recurring_entries_next_due  ON recurring_entries(next_due_date);
 SQL);
 
+    // category_budgets 表（類別預算）
+    $pdo->exec(<<<'SQL'
+    CREATE TABLE IF NOT EXISTS category_budgets (
+        id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+        ledger_id             INTEGER NOT NULL,
+        category              TEXT    NOT NULL,
+        monthly_budget_cents  INTEGER NOT NULL CHECK (monthly_budget_cents > 0),
+        is_active             INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+        created_at            TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+        updated_at            TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+        FOREIGN KEY (ledger_id) REFERENCES ledgers(id),
+        FOREIGN KEY (category) REFERENCES categories(name)
+    );
+SQL);
+    $pdo->exec(<<<'SQL'
+    CREATE INDEX IF NOT EXISTS idx_category_budgets_ledger_active
+        ON category_budgets(ledger_id, is_active);
+    CREATE INDEX IF NOT EXISTS idx_category_budgets_ledger_category
+        ON category_budgets(ledger_id, category);
+    -- 唯一性由應用層保證（INSERT 前檢查啟用中同類別），不建立唯一索引
+    -- 參考 Design.md §3.4：避免 SQLite Partial Index 版本相容性問題
+SQL);
+
     $pdo->exec(<<<'SQL'
     CREATE INDEX IF NOT EXISTS idx_ledgers_owner_id              ON ledgers(owner_id);
     CREATE INDEX IF NOT EXISTS idx_ledger_access_ledger_id       ON ledger_access(ledger_id);

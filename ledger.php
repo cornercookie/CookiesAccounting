@@ -697,9 +697,23 @@ if (!empty($_SESSION['voice_played'])) {
                 </form>
 
                 <?php
+                // === 類別預算查詢（新增）===
+                // 權限已在檔案開頭驗證（$ledger 含 role、archived=0），此處直接用 $ledgerId 查詢
+                $categoryBudgets = [];
+                $budgetStmt = $pdo->prepare('
+                    SELECT category, monthly_budget_cents
+                    FROM category_budgets
+                    WHERE ledger_id = :ledger_id AND is_active = 1
+                ');
+                $budgetStmt->execute([':ledger_id' => $ledgerId]);
+                while ($row = $budgetStmt->fetch()) {
+                    $categoryBudgets[$row['category']] = (int) $row['monthly_budget_cents'];
+                }
+
                 // 類別統計 SVG 圖表：本月各類別支出佔比
                 $categoryStats = [];
                 $categoryTotalCents = 0;
+                $categoryBudgetStatus = []; // ['category' => ['expense_cents', 'budget_cents', 'percent', 'status']]
                 if (!$isFiltered && $typeSel !== 'income') {
                     $catStmt = $pdo->prepare('
                         SELECT e.category, SUM(e.amount_cents) AS total_cents
@@ -721,8 +735,24 @@ if (!empty($_SESSION['voice_played'])) {
                     ]);
                     while ($catRow = $catStmt->fetch()) {
                         $cents = (int) $catRow['total_cents'];
-                        $categoryStats[] = ['category' => $catRow['category'], 'cents' => $cents];
+                        $cat = $catRow['category'];
+                        $categoryStats[] = ['category' => $cat, 'cents' => $cents];
                         $categoryTotalCents += $cents;
+
+                        // 類別預算比較（新增）
+                        if (isset($categoryBudgets[$cat])) {
+                            $budgetCents = $categoryBudgets[$cat];
+                            if ($budgetCents > 0) {
+                                $status = calcBudgetStatus($cents, $budgetCents);
+                                $percent = getBudgetPercent($cents, $budgetCents);
+                                $categoryBudgetStatus[$cat] = [
+                                    'expense_cents' => $cents,
+                                    'budget_cents' => $budgetCents,
+                                    'percent' => $percent,
+                                    'status' => $status,
+                                ];
+                            }
+                        }
                     }
                 }
                 ?>
@@ -749,6 +779,42 @@ if (!empty($_SESSION['voice_played'])) {
                         ?>
                     </svg>
                 </div>
+                <?php if (!empty($categoryBudgetStatus)): ?>
+                <div class="category-budget-status" aria-label="類別預算狀態">
+                    <h3>類別預算狀態</h3>
+                    <div class="table-wrap">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>類別</th>
+                                    <th class="num">本月支出</th>
+                                    <th class="num">預算金額</th>
+                                    <th class="num">使用率</th>
+                                    <th class="ctr">狀態</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($categoryBudgetStatus as $cat => $bs): ?>
+                                <tr>
+                                    <td><?php echo h($cat); ?></td>
+                                    <td class="num amt-out mono">-<?php echo h(formatCents($bs['expense_cents'])); ?></td>
+                                    <td class="num mono"><?php echo h(formatCents($bs['budget_cents'])); ?></td>
+                                    <td class="num mono"><?php echo h((string) $bs['percent']); ?>%</td>
+                                    <td class="ctr">
+                                        <span class="budget-chip <?php echo h($bs['status']); ?>">
+                                            <?php
+                                                echo $bs['status'] === 'danger' ? '已超過預算' :
+                                                     ($bs['status'] === 'warn' ? '接近預算上限' : '預算尚充足');
+                                            ?>
+                                        </span>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <?php endif; ?>
                 <?php elseif (!$isFiltered && $typeSel !== 'income' && $totalEntries === 0): ?>
                 <p class="empty">尚無支出紀錄。</p>
                 <?php endif; ?>

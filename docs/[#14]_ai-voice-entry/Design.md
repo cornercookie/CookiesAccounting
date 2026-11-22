@@ -1,18 +1,18 @@
-# Design & Implementation: AI 一句話記帳 (Gemini API 整合)
+# Design & Implementation: AI 自然語言記帳 (Gemini API 整合)
 
 ## 文件基本資訊
 
 | 項目 | 內容 |
 | --- | --- |
-| 名稱 | AI 一句話記帳設計（Gemini API 後端代理） |
-| 版本 | v1.0 |
+| 名稱 | AI 自然語言記帳設計（Gemini API 後端代理） |
+| 版本 | v1.1 |
 | 建立日期 | 2026-11-21 |
-| 更新日期 | 2026-11-21 |
-| 變更摘要 | v1.0 初稿。依 Planning 規範與獨立審查 SEC-01（API Key 僅後端持有、後端代理中繼）撰寫。 |
+| 更新日期 | 2026-11-22 |
+| 變更摘要 | v1.1 移除語音輸入支援，改為純文字自然語言解析；依 Planning 規範與獨立審查 SEC-01（API Key 僅後端持有、後端代理中繼）撰寫。 |
 
 ## 1. 變更概述
 
-讓使用者（特別是不擅長點選繁複表單欄位的長輩與家庭成員）能透過手機語音說出一句話，或直接輸入一段文字，系統透過後端 PHP 安全呼叫 Gemini API 解析出記帳欄位（金額、收入/支出、分類、日期、備註），並自動填入新增記錄表單中，使用者確認無誤後再儲存，實現極速隨手記。本功能為非強制擴充，不影響既有純手動記帳流程。
+讓使用者（特別是不擅長點選繁複表單欄位的長輩與家庭成員）能在文字框輸入一段自然語言（如「今天中午吃麵 120 元」），系統透過後端 PHP 安全呼叫 Gemini API 解析出記帳欄位（金額、收入/支出、分類、日期、備註），並自動填入新增記錄表單中，使用者確認無誤後再儲存，實現極速隨手記。**本功能不支援語音輸入**。本功能為非強制擴充，不影響既有純手動記帳流程。
 
 ## 2. 資料庫與架構變更
 
@@ -22,7 +22,7 @@
 
 ## 3. 設定入口與權限（SEC-01）
 
-- **入口**：在 `add_entry.php` 新增「AI 語音記帳」按鈕與文字輸入區，點擊後展開 AI 輔助區塊，支援 Web Speech API 語音轉文字（瀏覽器不支援時平滑降級為純文字輸入框）。
+- **入口**：在 `add_entry.php` 新增「AI 自然語言記帳」按鈕與文字輸入區，點擊後展開 AI 輔助區塊，**僅提供文字輸入框**，不支援 Web Speech API 語音轉文字。
 - **驗證**：呼叫 `ai_parse.php` 時須先經 `requireLogin()`，僅登入使用者可使用；不區分角色（member/owner/viewer 均可使用，但最終寫入仍受 add_entry 權限限制）。
 - **API Key 管理**：`GEMINI_API_KEY` 僅存於後端 `config.php` / 環境變數，前端絕不接觸金鑰；所有 Gemini 請求由後端 PHP 代理中繼，前端僅與 `ai_parse.php` 通訊。
 - **CSRF**：`ai_parse.php` 作為 JSON API 端點，採用 session 驗證（`requireLogin` 已綁定 session），不另外發 CSRF token；前端呼叫時帶同-origin session cookie 即可。
@@ -31,8 +31,8 @@
 
 ```mermaid
 flowchart TD
-    A["使用者於 add_entry 點擊「AI 語音記帳」"] --> B["展開 AI 輔助區塊（語音輸入 / 文字輸入）"]
-    B --> C["Web Speech API 轉文字（不支援則僅保留文字框）"]
+    A["使用者於 add_entry 點擊「AI 自然語言記帳」"] --> B["展開 AI 輔助區塊（文字輸入）"]
+    B --> C["使用者在文字框輸入自然語言（如「昨天買菜 350 元」）"]
     C --> D["前端將文字 POST 至 ./ai_parse.php（同-origin，帶 session cookie）"]
     D --> E["ai_parse.php：requireLogin 驗證"]
     E -->|失敗| F["回傳 403 / 錯誤 JSON，不呼叫 Gemini"]
@@ -69,7 +69,7 @@ flowchart TD
 
 ## 6. 驗證與測試計畫
 
-- **語音輸入**：支援 Web Speech API 的瀏覽器可語音輸入；不支援瀏覽器平滑降級為純文字框，功能不中斷。
+- **文字輸入**：純文字輸入框，不支援語音，功能單純穩定。
 - **後端代理**：`ai_parse.php` 未登入時回傳 403；`GEMINI_API_KEY` 未設定時回傳友善錯誤（不外洩內部細節）。
 - **Gemini 回應處理**：回應含 Markdown 代碼區塊時可正確清除並 json_decode；回應欄位缺漏時顯示部份結果並提示使用者補齊。
 - **型別驗證**：`type` 非 `income`/`expense`、`amount` 負數或非數字、`date` 非法時，後端回傳錯誤，前端不填入表單。
@@ -80,14 +80,15 @@ flowchart TD
 
 | 項目 | 內容 |
 | --- | --- |
-| 第 1 次審查（v1.0） | 待執行（預期檢查 SEC-01 API Key 外洩風險、前後端介面契約、降級行為） |
+| 第 1 次審查（v1.0） | 待執行（預期檢查 SEC-01 API Key 外洩風險、前後端介面契約、文字輸入行為） |
+| 第 2 次審查（v1.1） | 2026-11-22：確認移除語音輸入相關程式碼與樣式，簡化前端實作 |
 
-## 8. 實作紀錄（2026-11-21）
+## 8. 實作紀錄（2026-11-22）
 
 | 檔案 | 變更內容 |
 | --- | --- |
 | `config.php` | 無需修改（`env()` 已支援從環境變數或 `.env` 讀取 `GEMINI_API_KEY`） |
 | `.env.example` | 新增 `GEMINI_API_KEY` 選填設定範本，註明僅用於 AI 功能，未設定時一般手動記帳不受影響 |
 | `ai_parse.php`（新） | 後端代理 API：`requireLogin` 驗證、接收文字、呼叫 Gemini API、清除 Markdown 代碼區塊、`json_decode`、嚴格欄位驗證、回傳 JSON；錯誤時回傳友善訊息不中斷主流程 |
-| `add_entry.php` | 新增「AI 一句話記帳」輔助區塊（展開/摺疊、文字輸入框、Web Speech API 語音輸入、「解析並填入表單」按鈕、清除按鈕、狀態回饋）；前端以 `fetch` 呼叫 `./ai_parse.php`，解析成功後自動填入金額、分類、日期、類型、備註欄位；不直接寫入資料庫，使用者確認後才儲存 |
-| `assets/style.css` | 新增 `.ai-assist`、`.ai-head`、`.ai-toggle`、`.ai-panel`、`.ai-input-group`、`.ai-textarea`、`.ai-voice-btn`、`.ai-actions`、`.ai-status` 等樣式，含 720px 手機版調整 |
+| `add_entry.php` | 新增「AI 自然語言記帳」輔助區塊（展開/摺疊、文字輸入框、「解析並填入表單」按鈕、清除按鈕、狀態回饋）；前端以 `fetch` 呼叫 `./ai_parse.php`，解析成功後自動填入金額、分類、日期、類型、備註欄位；不直接寫入資料庫，使用者確認後才儲存 |
+| `assets/style.css` | 新增 `.ai-assist`、`.ai-head`、`.ai-toggle`、`.ai-panel`、`.ai-input-group`、`.ai-textarea`、`.ai-actions`、`.ai-status` 等樣式，**移除 `.ai-voice-btn` 語音按鈕樣式**，含 720px 手機版調整 |

@@ -66,141 +66,199 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } elseif ($size > 2 * 1024 * 1024) {
                 $error = '檔案大小超過 2MB 限制，請縮小後再上傳。';
             } else {
-                // 僅允許 .csv 副檔名
+                // 僅允許 .csv 副檔名（大小寫不敏感）
                 $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
                 if ($ext !== 'csv') {
                     $error = '僅允許 .csv 副檔名的檔案。';
                 } else {
-                    // 開始匯入
-                    $successCount = 0;
-                    $failedCount  = 0;
-                    $failErrors   = [];
-
-                    // 開啟 CSV 檔案，逐行讀取（不儲存於伺服器，直接由 tmp_name 讀取）
-                    $handle = @fopen($tmpName, 'r');
-                    if ($handle === false) {
-                        $error = '無法開啟 CSV 檔案。';
+                    // MIME type 驗證（finfo_file，防止偽裝副檔名的惡意檔案）
+                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                    if ($finfo === false) {
+                        logError('csv import: finfo_open failed (fileinfo extension unavailable)');
+                        $error = '系統錯誤：無法驗證檔案類型。';
                     } else {
-                        $lineNum     = 0;
-                        $headerSkipped = false;
-                        $bomRemoved    = false;
-
-                        while (($row = fgetcsv($handle)) !== false) {
-                            $lineNum++;
-
-                            // 第一列視為標題行並跳過
-                            if (!$headerSkipped) {
-                                $headerSkipped = true;
-                                continue;
-                            }
-
-                            // 去除 BOM（若第一欄開頭為 BOM 字元，僅處理第一筆資料列）
-                            if (!$bomRemoved && isset($row[0]) && $row[0] !== '') {
-                                $row[0] = ltrim($row[0], "\xEF\xBB\xBF");
-                                $bomRemoved = true;
-                            }
-
-                            // 欄位數量檢查（至少 4 個欄位：日期、類型、金額、分類）
-                            if (count($row) < 4) {
-                                $failedCount++;
-                                $failErrors[] = '第 ' . $lineNum . ' 行：欄位不足（需至少 4 個欄位：日期、類型、金額、分類）';
-                                continue;
-                            }
-
-                            // 取得欄位（記錄者第 5 欄可選，備註第 6 欄可選）
-                            $dateStr   = trim((string) ($row[0] ?? ''));
-                            $typeStr   = trim((string) ($row[1] ?? ''));
-                            $amountStr = trim((string) ($row[2] ?? ''));
-                            $category  = trim((string) ($row[3] ?? ''));
-                            $recorder  = trim((string) ($row[4] ?? ''));
-                            $note      = trim((string) ($row[5] ?? ''));
-
-                            // 逐行驗證
-                            $rowError = '';
-
-                            // 日期格式（Y-m-d）
-                            if ($dateStr === '' || !isValidDate($dateStr)) {
-                                $rowError = '日期格式不正確（需為 Y-m-d，例如 2026-01-15）';
-                            }
-                            // 類型（收入/支出/轉帳）
-                            elseif (!in_array($typeStr, ['收入', '支出', '轉帳'], true)) {
-                                $rowError = '類型不正確（需為 收入、支出、轉帳）';
-                            }
-
-                            // 金額格式（toCents，不得為負數）
-                            $cents = 0;
-                            if ($rowError === '') {
-                                $cents = toCents($amountStr);
-                                if ($cents === false) {
-                                    $rowError = '金額格式不正確（請使用整數或至多小數點後兩位，例如 100 或 100.50）';
-                                } elseif ($cents < 0) {
-                                    $rowError = '金額不得為負數';
-                                }
-                            }
-
-                            // 分類長度（≤50 字元）
-                            if ($rowError === '') {
-                                if ($category === '') {
-                                    $rowError = '分類不得為空';
-                                } elseif (mb_strlen($category, 'UTF-8') > 50) {
-                                    $rowError = '分類長度超過 50 字元限制';
-                                }
-                            }
-
-                            // 記錄者：若不提供則使用目前登入使用者
-                            if ($rowError === '') {
-                                if ($recorder === '') {
-                                    $recorder = $user['username'];
-                                }
-                            }
-
-                            if ($rowError !== '') {
-                                $failedCount++;
-                                $failErrors[] = '第 ' . $lineNum . ' 行：' . $rowError;
-                                continue;
-                            }
-
-                            // 類型轉換為資料庫值
-                            $typeDb = match ($typeStr) {
-                                '收入'    => 'income',
-                                '支出'    => 'expense',
-                                '轉帳'    => 'transfer',
-                            };
-
-                            // 寫入 entries 表（PDO 預備陳述式，具名佔位符）
-                            $stmt = $pdo->prepare('
-                                INSERT INTO entries
-                                    (ledger_id, user_id, amount_cents, type, category, entry_date, note, deleted)
-                                VALUES
-                                    (:ledger_id, :user_id, :amount_cents, :type, :category, :entry_date, :note, 0)
-                            ');
-                            $stmt->execute([
-                                ':ledger_id'   => $ledgerId,
-                                ':user_id'     => $userId,
-                                ':amount_cents' => $cents,
-                                ':type'        => $typeDb,
-                                ':category'    => $category,
-                                ':entry_date'  => $dateStr,
-                                ':note'        => $note,
-                            ]);
-                            $successCount++;
-                        }
-
-                        fclose($handle);
-
-                        // 記錄 audit_log（匯入成功與失敗筆數）
-                        logAudit('csv_import', 'ledger_id=' . $ledgerId . ' success=' . $successCount . ' failed=' . $failedCount);
-
-                        $importResult = [
-                            'success' => $successCount,
-                            'failed'  => $failedCount,
-                            'errors'  => $failErrors,
-                        ];
-
-                        if ($failedCount === 0) {
-                            $success = '匯入完成：共 ' . $successCount . ' 筆記錄已成功匯入。';
+                        $mime = finfo_file($finfo, $tmpName);
+                        finfo_close($finfo);
+                        $allowedMime = ['text/csv', 'text/plain', 'application/csv'];
+                        if (!in_array($mime, $allowedMime, true)) {
+                            $error = '檔案類型不允許，請上傳有效的 CSV 檔案。';
                         } else {
-                            $success = '匯入完成：成功 ' . $successCount . ' 筆，失敗 ' . $failedCount . ' 筆。';
+                            // 開始匯入
+                            $successCount = 0;
+                            $failedCount  = 0;
+                            $failErrors   = [];
+
+                            // 開啟 CSV 檔案，逐行讀取（不儲存於伺服器，直接由 tmp_name 讀取）
+                            $handle = @fopen($tmpName, 'r');
+                            if ($handle === false) {
+                                $error = '無法開啟 CSV 檔案。';
+                            } else {
+                                $lineNum     = 0;
+                                $headerSkipped = false;
+                                $bomRemoved    = false;
+
+                                // CSV 公式注入防護前綴字元（同 export_csv.php）
+                                $formulaPrefixes = ['=', '+', '-', '@', "\t", "\r"];
+
+                                while (($row = fgetcsv($handle)) !== false) {
+                                    $lineNum++;
+
+                                    // 第一列視為標題行並跳過
+                                    if (!$headerSkipped) {
+                                        $headerSkipped = true;
+                                        // 檢查標題行 BOM
+                                        if (isset($row[0]) && str_starts_with($row[0], "\xEF\xBB\xBF")) {
+                                            $row[0] = substr($row[0], 3);
+                                            $bomRemoved = true;
+                                        }
+                                        continue;
+                                    }
+
+                                    // 去除 BOM（若標題行未處理到，則在第一筆資料列處理）
+                                    if (!$bomRemoved && isset($row[0]) && $row[0] !== '') {
+                                        if (str_starts_with($row[0], "\xEF\xBB\xBF")) {
+                                            $row[0] = substr($row[0], 3);
+                                        }
+                                        $bomRemoved = true;
+                                    }
+
+                                    // 欄位數量驗證：標準 6 欄位（日期、類型、金額、分類、記錄者、備註）
+                                    // 不足 6 欄位補空字串，超過 6 欄位截斷並記錄警告
+                                    $fieldCount = count($row);
+                                    if ($fieldCount < 6) {
+                                        $row = array_pad($row, 6, '');
+                                        $failErrors[] = '第 ' . $lineNum . ' 行：欄位不足 6 個（已自動補空）';
+                                    } elseif ($fieldCount > 6) {
+                                        $row = array_slice($row, 0, 6);
+                                        $failErrors[] = '第 ' . $lineNum . ' 行：欄位超過 6 個（已截斷多餘欄位）';
+                                    }
+
+                                    // 取得欄位
+                                    $dateStr   = trim((string) ($row[0] ?? ''));
+                                    $typeStr   = trim((string) ($row[1] ?? ''));
+                                    $amountStr = trim((string) ($row[2] ?? ''));
+                                    $category  = trim((string) ($row[3] ?? ''));
+                                    $recorder  = trim((string) ($row[4] ?? ''));
+                                    $note      = trim((string) ($row[5] ?? ''));
+
+                                    // 逐行驗證
+                                    $rowError = '';
+
+                                    // 日期格式（Y-m-d）
+                                    if ($dateStr === '' || !isValidDate($dateStr)) {
+                                        $rowError = '日期格式不正確（需為 Y-m-d，例如 2026-01-15）';
+                                    }
+                                    // 類型（收入/支出/轉帳）
+                                    elseif (!in_array($typeStr, ['收入', '支出', '轉帳'], true)) {
+                                        $rowError = '類型不正確（需為 收入、支出、轉帳）';
+                                    }
+
+                                    // 金額格式（toCents，不得為負數）
+                                    $cents = 0;
+                                    if ($rowError === '') {
+                                        $cents = toCents($amountStr);
+                                        if ($cents === false) {
+                                            $rowError = '金額格式不正確（請使用整數或至多小數點後兩位，例如 100 或 100.50）';
+                                        } elseif ($cents < 0) {
+                                            $rowError = '金額不得為負數';
+                                        }
+                                    }
+
+                                    // 分類長度（≤50 字元）+ CSV 公式注入防護
+                                    if ($rowError === '') {
+                                        if ($category === '') {
+                                            $rowError = '分類不得為空';
+                                        } elseif (mb_strlen($category, 'UTF-8') > 50) {
+                                            $rowError = '分類長度超過 50 字元限制';
+                                        } else {
+                                            // CSV 公式注入防護：開頭為 =,+,-,@,\t,\r 者前綴單引號
+                                            if ($category !== '' && in_array($category[0], $formulaPrefixes, true)) {
+                                                $category = "'" . $category;
+                                            }
+                                        }
+                                    }
+
+                                    // 備註：CSV 公式注入防護
+                                    if ($rowError === '' && $note !== '' && in_array($note[0], $formulaPrefixes, true)) {
+                                        $note = "'" . $note;
+                                    }
+
+                                    // 記錄者驗證：若提供則查詢 users 表驗證存在性；不存在或空值 → 使用目前登入使用者
+                                    $entryUserId = $userId; // 預設為登入使用者
+                                    if ($rowError === '') {
+                                        if ($recorder !== '') {
+                                            $stmtUser = $pdo->prepare('SELECT id FROM users WHERE username = :username LIMIT 1');
+                                            $stmtUser->execute([':username' => $recorder]);
+                                            $userRow = $stmtUser->fetch();
+                                            if ($userRow !== false) {
+                                                $entryUserId = (int) $userRow['id'];
+                                            } else {
+                                                // 記錄者不存在，使用登入使用者（不視為錯誤，只記錄警告，亦受 100 筆限制）
+                                                if (count($failErrors) < 100) {
+                                                    $failErrors[] = '第 ' . $lineNum . ' 行：記錄者 "' . $recorder . '" 不存在，改用目前登入使用者';
+                                                } elseif (count($failErrors) === 100) {
+                                                    $failErrors[] = '... 其餘錯誤略過（超過 100 筆上限）';
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if ($rowError !== '') {
+                                        $failedCount++;
+                                        // 失敗原因最多記錄 100 筆（超過則不再加入陣列，但仍繼續計數 failedCount）
+                                        if (count($failErrors) < 100) {
+                                            $failErrors[] = '第 ' . $lineNum . ' 行：' . $rowError;
+                                        } elseif (count($failErrors) === 100) {
+                                            // 第 101 筆錯誤時，加入略過提示並停止記錄詳細錯誤
+                                            $failErrors[] = '... 其餘錯誤略過（超過 100 筆上限）';
+                                        }
+                                        continue;
+                                    }
+
+                                    // 類型轉換為資料庫值
+                                    $typeDb = match ($typeStr) {
+                                        '收入'    => 'income',
+                                        '支出'    => 'expense',
+                                        '轉帳'    => 'transfer',
+                                    };
+
+                                    // 記錄者欄位也做公式注入防護（寫入 note 欄位時已處理，這裡為完整性）
+                                    // 寫入 entries 表（PDO 預備陳述式，具名佔位符，含所有欄位）
+                                    $stmt = $pdo->prepare('
+                                        INSERT INTO entries
+                                            (ledger_id, user_id, amount_cents, type, category, entry_date, note, receipt_path, deleted, recurring_source_id)
+                                        VALUES
+                                            (:ledger_id, :user_id, :amount_cents, :type, :category, :entry_date, :note, \'\', 0, NULL)
+                                    ');
+                                    $stmt->execute([
+                                        ':ledger_id'         => $ledgerId,
+                                        ':user_id'           => $entryUserId,
+                                        ':amount_cents'      => $cents,
+                                        ':type'              => $typeDb,
+                                        ':category'          => $category,
+                                        ':entry_date'        => $dateStr,
+                                        ':note'              => $note,
+                                    ]);
+                                    $successCount++;
+                                }
+
+                                fclose($handle);
+
+                                // 記錄 audit_log（匯入成功與失敗筆數）
+                                logAudit('csv_import', 'ledger_id=' . $ledgerId . ' success=' . $successCount . ' failed=' . $failedCount);
+
+                                $importResult = [
+                                    'success' => $successCount,
+                                    'failed'  => $failedCount,
+                                    'errors'  => $failErrors,
+                                ];
+
+                                if ($failedCount === 0) {
+                                    $success = '匯入完成：共 ' . $successCount . ' 筆記錄已成功匯入。';
+                                } else {
+                                    $success = '匯入完成：成功 ' . $successCount . ' 筆，失敗 ' . $failedCount . ' 筆。';
+                                }
+                            }
                         }
                     }
                 }

@@ -22,8 +22,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($username === '' || $password === '') {
             $error = '請輸入帳號與密碼';
         } else {
-        // 登入失敗計數僅綁定於帳號，不納入 IP，避免同一公網 IP 下的家庭成員互相導致鎖定（FIND-001）
-        $identifier = $username;
+        // 登入失敗計綁於「帳號|IP」：
+        // - 同一公網 IP 下不同帳號互不影響（家庭成員共用 IP 不會互相鎖定）
+        // - 攻擊者無法透過換 IP 對單一常見帳號（如 admin）無限嘗試暴力破解
+        $ip       = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+        $identifier = $username . '|' . $ip;
 
         if (isLoginLocked($identifier)) {
             // 鎖定期間內不進行密碼比對；前端顯示與一般失敗相同訊息，避免使用者列舉（FIND-005）
@@ -78,15 +81,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             ':login_at'  => $loginAt,
                         ]);
 
-                        // 比對歷史 IP，若為新來源則設定 session 提醒標記（僅以 IP 為主要判定）
+                        // 比對歷史來源（IP + User-Agent），若為新來源則設定 session 提醒標記
+                        // 僅以 IP 判斷在共享公網 IP 環境下準確性受限，故併同 User-Agent 一起比對
                         $histStmt = $pdo->prepare(
                             'SELECT COUNT(*) AS cnt FROM login_sessions
-                             WHERE user_id = :user_id AND ip = :ip AND id <> :cur_id'
+                             WHERE user_id = :user_id AND ip = :ip AND user_agent = :user_agent AND id <> :cur_id'
                         );
                         $histStmt->execute([
-                            ':user_id' => (int) $user['id'],
-                            ':ip'      => $ip,
-                            ':cur_id'  => (int) $pdo->lastInsertId(),
+                            ':user_id'   => (int) $user['id'],
+                            ':ip'        => $ip,
+                            ':user_agent'=> $userAgent,
+                            ':cur_id'    => (int) $pdo->lastInsertId(),
                         ]);
                         $histRow = $histStmt->fetch();
                         if ($histRow !== false && (int) $histRow['cnt'] === 0) {

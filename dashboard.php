@@ -388,43 +388,6 @@ try {
         </div>
     </div>
 
-    <script>
-        // 字級切換：Cookie 讀寫與 .font-large 切換
-        (function () {
-            var toggle = document.getElementById('fontSizeToggle');
-            if (!toggle) return;
-
-            function getCookie(name) {
-                var value = '; ' + document.cookie;
-                var parts = value.split('; ' + name + '=');
-                if (parts.length === 2) return parts.pop().split(';').shift();
-                return null;
-            }
-
-            function setCookie(name, value, days) {
-                var expires = new Date();
-                expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000);
-                document.cookie = name + '=' + value + '; expires=' + expires.toUTCString() + '; path=/; SameSite=Lax';
-            }
-
-            var fontSize = getCookie('font_size');
-            if (fontSize === 'large') {
-                document.body.classList.add('font-large');
-                toggle.textContent = '一般 A';
-            }
-
-            toggle.addEventListener('click', function () {
-                if (document.body.classList.contains('font-large')) {
-                    document.body.classList.remove('font-large');
-                    setCookie('font_size', 'normal', 90);
-                    toggle.textContent = '大字 A';
-                } else {
-                    document.body.classList.add('font-large');
-                    setCookie('font_size', 'large', 90);
-                    toggle.textContent = '一般 A';
-                }
-            });
-        })();
-    </script>
+        <script src="./assets/app.js"></script>
 </body>
 </html>

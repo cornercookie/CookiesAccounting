@@ -51,6 +51,23 @@ function env(string $key, string $default = ''): string
 define('ADMIN_USERNAME', env('ADMIN_USERNAME'));
 define('ADMIN_PASSWORD', env('ADMIN_PASSWORD'));
 
+// SEC-005：偵測 .env 未替換預設佔位符（不讀取真實密碼，只檢查是否仍為範例值）
+// 若偵測到佔位符，寫入 error.log 警告，提醒部署前務必設定強密碼。
+$envPlaceholders = [
+    'YOUR_STRONG_PASSWORD_HERE',
+    'your_gemini_api_key_here',
+    '',
+];
+$adminPassword = (string) ADMIN_PASSWORD;
+$geminiApiKey  = (string) env('GEMINI_API_KEY');
+$isPlaceholder = in_array($adminPassword, $envPlaceholders, true)
+    || $adminPassword === 'admin'
+    || $adminPassword === 'password'
+    || in_array($geminiApiKey, $envPlaceholders, true);
+if ($isPlaceholder) {
+    error_log('[SEC-005 WARNING] .env 仍使用預設佔位符密碼或 API 金鑰，部署前請務必替換為強密碼。');
+}
+
 /* ----------------------------------------------------------------
    3. 資料庫（SQLite 唯一，位於私密目錄下）
    ----------------------------------------------------------------- */
@@ -118,9 +135,9 @@ session_name('cookies_accounting');
 session_start();
 
 // Content Security Policy（FIND-011）：預設僅允許同源資源，防止 XSS 與資料外洩。
-// 現有頁面內聯大量 <script>（字級切換、AI 語音等），短期內需保留 'unsafe-inline'，
-// 長期建議將內聯腳本移至外部 JS 檔案並改用 nonce。
-header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self';");
+// 所有腳本皆已移至外部 JS（assets/app.js、assets/ai-parse.js），故不再需要 script-src 'unsafe-inline'。
+// style-src 暫時保留 'unsafe-inline'（ledger.php 尚有內聯 <style>），後續可進一步外部化 CSS。
+header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self';");
 
 // 點擊劫持防護（FIND-012）：禁止頁面被 <iframe> 嵌入。
 header('X-Frame-Options: DENY');

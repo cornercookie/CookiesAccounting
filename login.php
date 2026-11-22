@@ -13,12 +13,15 @@ $username = '';
 $error    = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = trim($_POST['username'] ?? '');
-    $password = $_POST['password'] ?? '';
-
-    if ($username === '' || $password === '') {
-        $error = '請輸入帳號與密碼';
+    if (!checkCsrf($_POST['csrf_token'] ?? '')) {
+        $error = '請求驗證失敗，請重新提交表單。';
     } else {
+        $username = trim($_POST['username'] ?? '');
+        $password = $_POST['password'] ?? '';
+
+        if ($username === '' || $password === '') {
+            $error = '請輸入帳號與密碼';
+        } else {
         // 登入失敗計數僅綁定於帳號，不納入 IP，避免同一公網 IP 下的家庭成員互相導致鎖定（FIND-001）
         $identifier = $username;
 
@@ -133,6 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <?php endif; ?>
 
                 <form method="POST" action="./login.php" autocomplete="off" class="form">
+    <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
                     <div class="field">
                         <label for="username" class="label">管理員帳號</label>
                         <input

@@ -642,7 +642,7 @@ if (!empty($_SESSION['voice_played'])) {
                                     <?php $isRecurringOwner = ((int) $rec['user_id'] === $userId); ?>
                                     <?php if ($isRecurringOwner || $accessRole === 'owner' || $accessRole === 'admin'): ?>
                                     <div class="ctr-actions">
-                                        <button type="button" class="btn secondary sm" onclick="openEditRecurring(<?php echo (int) $rec['id']; ?>, '<?php echo h($rec['name']); ?>', '<?php echo h((string) $rec['amount_cents']); ?>', '<?php echo h($rec['type']); ?>', '<?php echo h($rec['category']); ?>', '<?php echo h($rec['start_date']); ?>', '<?php echo h($rec['next_due_date']); ?>');">編輯</button>
+                                        <button type="button" class="btn secondary sm" data-recurring-id="<?php echo (int) $rec['id']; ?>" data-name="<?php echo h($rec['name']); ?>" data-amount-cents="<?php echo h((string) $rec['amount_cents']); ?>" data-type="<?php echo h($rec['type']); ?>" data-category="<?php echo h($rec['category']); ?>" data-start-date="<?php echo h($rec['start_date']); ?>" data-next-due-date="<?php echo h($rec['next_due_date']); ?>" onclick="openEditRecurringFromElement(this);">編輯</button>
                                         <form method="POST" action="./ledger.php?ledger_id=<?php echo h((string) $ledgerId); ?>" onsubmit="return confirm('確定要停用這個重複記錄嗎？');" style="display:inline;">
                                             <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
                                             <input type="hidden" name="action" value="toggle_recurring">
@@ -919,18 +919,19 @@ if (!empty($_SESSION['voice_played'])) {
     </div>
 
     <script>
-        function openEditRecurring(id, name, amountCents, type, category, startDate, nextDue) {
-            document.getElementById('edit_recurring_id').value = id;
-            document.getElementById('edit_recurring_name').value = name;
+        function openEditRecurringFromElement(btn) {
+            document.getElementById('edit_recurring_id').value = btn.dataset.recurringId;
+            document.getElementById('edit_recurring_name').value = btn.dataset.name;
             // amountCents 是整數分，轉換為元顯示
+            var amountCents = parseInt(btn.dataset.amountCents, 10);
             var dollars = Math.floor(Math.abs(amountCents) / 100);
             var cents = Math.abs(amountCents) % 100;
             var amountStr = dollars + (cents > 0 ? '.' + String(cents).padStart(2, '0') : '');
             document.getElementById('edit_recurring_amount').value = amountStr;
-            document.getElementById('edit_recurring_type').value = type;
-            document.getElementById('edit_recurring_category').value = category;
-            document.getElementById('edit_recurring_start_date').value = startDate;
-            document.getElementById('edit_recurring_next_due').value = nextDue;
+            document.getElementById('edit_recurring_type').value = btn.dataset.type;
+            document.getElementById('edit_recurring_category').value = btn.dataset.category;
+            document.getElementById('edit_recurring_start_date').value = btn.dataset.startDate;
+            document.getElementById('edit_recurring_next_due').value = btn.dataset.nextDueDate;
             document.getElementById('editRecurringModal').style.display = 'block';
         }
 

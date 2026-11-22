@@ -9,6 +9,13 @@ require_once __DIR__ . '/functions.php';
 // 僅允許登入使用者呼叫
 requireLogin();
 
+// JSON API 狀態改寫（寫入 api_rate_limits），需 CSRF 防護
+if (!checkCsrf($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '')) {
+    http_response_code(403);
+    echo json_encode(['ok' => false, 'error' => 'CSRF 驗證失敗，請重新操作。'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 header('Content-Type: application/json; charset=utf-8');
 
 // 僅接受 POST
@@ -167,8 +174,8 @@ if (!is_array($parsed)) {
 $result = [];
 $result['type'] = isset($parsed['type']) && in_array($parsed['type'], ['income', 'expense'], true)
     ? $parsed['type'] : null;
-$result['amount'] = isset($parsed['amount']) && is_numeric($parsed['amount']) && (float) $parsed['amount'] > 0
-    ? (float) $parsed['amount'] : null;
+$amountCents = isset($parsed['amount']) ? toCents((string) $parsed['amount']) : null;
+$result['amount_cents'] = ($amountCents !== false && $amountCents > 0) ? $amountCents : null;
 $result['category'] = isset($parsed['category']) && is_string($parsed['category']) && $parsed['category'] !== ''
     ? trim($parsed['category']) : null;
 $result['date'] = isset($parsed['date']) && is_string($parsed['date']) && isValidDate($parsed['date'])

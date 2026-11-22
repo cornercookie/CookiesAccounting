@@ -110,8 +110,8 @@ ini_set('session.cookie_samesite', 'Lax');
 // Session Cookie 僅透過 HTTPS 傳輸（FIND-010）。部署前請先確認主機已啟用 HTTPS，
 // 否則 Cookie 無法傳送而導致登入失敗。
 ini_set('session.cookie_secure', '1');
-// Session 伺服器端最長存活 24 分鐘（FIND-016），超過即視為過期需重新登入。
-ini_set('session.gc_maxlifetime', 1440);
+// Session 伺服器端最長存活 30 分鐘（FIND-016），超過即視為過期需重新登入。
+ini_set('session.gc_maxlifetime', 1800);
 // Cookie 於瀏覽器關閉時即過期，避免共享電腦殘留登入狀態。
 ini_set('session.cookie_lifetime', '0');
 session_name('cookies_accounting');

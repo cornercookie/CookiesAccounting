@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $error = '目前密碼錯誤。';
                     } else {
                         $hash = password_hash($new, PASSWORD_DEFAULT);
-                        $stmt = $pdo->prepare('UPDATE users SET password_hash = :hash WHERE id = :id');
+                        $stmt = $pdo->prepare('UPDATE users SET password_hash = :hash, password_changed_at = datetime(\'now\',\'localtime\') WHERE id = :id');
                         $stmt->execute([':hash' => $hash, ':id' => $myId]);
                         logAudit('password_change');
                         $success = true;
@@ -117,7 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                         <div class="field">
                             <label for="new_password" class="label">新密碼</label>
-                            <input type="password" name="new_password" id="new_password" required autocomplete="new-password" class="input" placeholder="至少 6 個字元">
+                            <input type="password" name="new_password" id="new_password" required autocomplete="new-password" class="input" placeholder="至少 10 個字元">
                         </div>
                         <div class="field">
                             <label for="confirm_password" class="label">確認新密碼</label>

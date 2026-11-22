@@ -10,9 +10,15 @@ requireLogin();
 $user = currentUser();
 $pdo = getPdo();
 
-$userCount   = (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
-$ledgerCount = (int) $pdo->query('SELECT COUNT(*) FROM ledgers')->fetchColumn();
-$entryCount  = (int) $pdo->query('SELECT COUNT(*) FROM entries WHERE deleted = 0')->fetchColumn();
+$userStmt   = $pdo->prepare('SELECT COUNT(*) FROM users');
+$userStmt->execute();
+$userCount   = (int) $userStmt->fetchColumn();
+$ledgerStmt  = $pdo->prepare('SELECT COUNT(*) FROM ledgers');
+$ledgerStmt->execute();
+$ledgerCount = (int) $ledgerStmt->fetchColumn();
+$entryStmt   = $pdo->prepare('SELECT COUNT(*) FROM entries WHERE deleted = 0');
+$entryStmt->execute();
+$entryCount  = (int) $entryStmt->fetchColumn();
 
 // 各帳本加總：不把不同帳本加在一起——每本帳各自呈現本月收支
 $today = new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei'));

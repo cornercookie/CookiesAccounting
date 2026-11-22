@@ -167,7 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (Throwable $e) {
             $pdo->rollBack();
             logError('admin_user_delete failed for user_id=' . $targetId . ': ' . $e->getMessage());
-            redirect('./users.php?error=1&msg=' . urlencode('刪除失敗：' . $e->getMessage()));
+            redirect('./users.php?error=1&msg=' . urlencode('刪除失敗，請稍後再試。'));
         }
         logAudit('admin_user_delete', 'target_user_id=' . $targetId . ' username=' . (string) $target['username']);
         redirect('./users.php?success=1&msg=' . urlencode('使用者「' . $target['username'] . '」已刪除。其帳本存取權與記帳記錄已一併移除；若該使用者名下帳本因此失去擁有者，請至帳本管理的「擁有者已刪除的帳本」頁面重新指定。'));
@@ -246,7 +246,7 @@ $users = $pdo->query('SELECT id, username, role, created_at FROM users ORDER BY 
                 >
                 </div>
                 <div class="field"><label for="create_password" class="label">密碼</label>
-                <input type="password" name="password" id="create_password" required class="input" placeholder="至少 6 個字元">
+                <input type="password" name="password" id="create_password" required class="input" placeholder="至少 10 個字元">
                 </div>
                 <div class="field"><label for="create_role" class="label">角色</label>
                 <select name="role" id="create_role" class="input">

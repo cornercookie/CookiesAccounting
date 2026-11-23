@@ -46,9 +46,9 @@ flowchart TD
 
 | 檔案 | 修改內容 |
 | --- | --- |
-| `dashboard.php` | 新增成員記帳進度區塊：先取得該帳本所有有存取權的成員，再 LEFT JOIN 本月未刪除記錄聚合筆數，沒記錄的成員顯示 0 筆；針對每個可存取帳本分別查詢；新增預算超支橫幅（僅當月、預算 > 0 時顯示）。 |
-| `ledger.php` | 新增預算超支橫幅（與 dashboard 同樣邏輯）；新增類別統計 SVG 圖表（PHP 端產生，失敗回退 HTML 表格）；在 `<head>` 內嵌 `@media print` CSS。 |
-| `assets/style.css` | 新增預算橫幅樣式（`.budget-banner`、`.budget-banner.warn`、`.budget-banner.danger`）；列印樣式已內嵌於 ledger.php，不修改 CSS。 |
+| `dashboard.php` | **驗證現有實作符合規格**（第 521-529 行、531-558 行、560-566 行）：成員記帳進度區塊與預算超支橫幅已實作，確認邏輯與規格一致（僅當月、預算 > 0 時顯示、黃/紅色橫幅）。 |
+| `ledger.php` | **驗證現有實作符合規格**（第 521-529 行、531-558 行、560-566 行）：預算超支橫幅與 dashboard 同邏輯已實作；**驗證現有實作符合規格**（第 436-448 行）：列印友善月結單 `@media print` CSS 已內嵌於 `<head>`；**規格對齊確認**（第 716-783 行、784-822 行）：類別統計 SVG 圖表已實作，補充回退機制與顏色變數使用。 |
+| `assets/style.css` | **驗證現有實作符合規格**：預算橫幅樣式（`.budget-banner`、`.budget-banner.warn`、`.budget-banner.danger`）與類別統計圖表樣式（`.category-chart rect { fill: var(--blue); }`）已存在；列印樣式已內嵌於 ledger.php，不修改 CSS。 |
 
 ## 前端變更說明
 
@@ -62,10 +62,12 @@ flowchart TD
 
 ### 類別統計 SVG 圖表
 
+- **顯示條件**：僅在 `!$isFiltered && $typeSel !== 'income'` 且本月有支出記錄（`$categoryTotalCents > 0`）時顯示（ledger.php 第 719 行、761 行）。
 - PHP 端查詢：`SELECT e.category, SUM(e.amount_cents) FROM entries e INNER JOIN ledger_access la ON la.ledger_id = e.ledger_id AND la.user_id = :user_id WHERE e.ledger_id = :ledger_id AND e.deleted = 0 AND e.type = 'expense' AND e.entry_date BETWEEN 本月首日 AND 本月末日 GROUP BY e.category ORDER BY SUM(e.amount_cents) DESC`
-- 金額經 `formatCents()` 格式化；類別標籤與 `username` 所有輸出點（HTML 與 SVG `<text>`）皆經 `h()` 轉義；SVG `<rect>` 的 `x/y/width/height/fill` 為 PHP 計算之數字，強制 cast 為數值。
-- 若無支出記錄，顯示文字「尚無支出紀錄」。
-- SVG 產生失敗時回退為 HTML 表格（類別＋金額＋佔比），金額同樣經 `formatCents()`、文字經 `h()`。
+- 金額經 `formatCents()` 格式化；類別標籤與 `username` 所有輸出點（HTML 與 SVG `<text>`）皆經 `h()` 轉義；SVG `<rect>` 的 `x/y/width/height` 為 PHP 計算之數字，強制 cast 為數值。
+- **顏色變數**：`<rect>` 不指定內聯 `fill`，改由 CSS 變數 `--blue` 控制（`assets/style.css` 第 634 行 `.category-chart rect { fill: var(--blue); }`），避免硬編碼衝突。
+- 若無支出記錄，顯示文字「尚無支出紀錄」（ledger.php 第 820-821 行）。
+- **回退機制**：SVG 產生區塊以 `try-catch` 包裹（ledger.php 第 766-782 行），失敗時輸出 HTML 表格（類別、金額、佔比），金額經 `formatCents()`、文字經 `h()` 轉義。
 
 ### 列印友善月結單
 

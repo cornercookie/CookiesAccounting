@@ -761,6 +761,9 @@ if (!empty($_SESSION['voice_played'])) {
                 <?php if ($categoryTotalCents > 0): ?>
                 <div class="category-stats" aria-label="本月類別支出統計">
                     <h3>本月類別支出統計</h3>
+                    <?php
+                    try {
+                    ?>
                     <svg class="category-chart" viewBox="0 0 600 300" role="img" aria-labelledby="category-chart-title">
                         <title id="category-chart-title">本月各類別支出佔比</title>
                         <?php
@@ -773,13 +776,40 @@ if (!empty($_SESSION['voice_played'])) {
                             $barWidth = $maxWidth * ($percent / 100);
                             $label = h($stat['category']);
                             $amount = h(formatCents($stat['cents']));
-                            echo '<rect x="80" y="' . (int) $y . '" width="' . (int) $barWidth . '" height="' . (int) $barHeight . '" fill="#1f4e79" rx="2" />';
+                            echo '<rect x="80" y="' . (int) $y . '" width="' . (int) $barWidth . '" height="' . (int) $barHeight . '" fill="var(--blue)" rx="2" />';
                             echo '<text x="75" y="' . (int) ($y + $barHeight / 2 + 5) . '" text-anchor="end" font-size="12" fill="#23272b">' . $label . '</text>';
                             echo '<text x="' . (int) (80 + $barWidth + 5) . '" y="' . (int) ($y + $barHeight / 2 + 5) . '" font-size="12" fill="#23272b">' . $amount . ' 元 (' . (int) $percent . '%)</text>';
                             $y += $barHeight + $gap;
                         }
                         ?>
                     </svg>
+                    <?php
+                    } catch (Throwable $e) {
+                        logAudit('category_svg_fallback', 'ledger_id=' . $ledgerId . ' error=' . $e->getMessage());
+                    ?>
+                    <div class="table-wrap">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>類別</th>
+                                    <th class="num">金額</th>
+                                    <th class="num">佔比</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($categoryStats as $stat): ?>
+                                <tr>
+                                    <td><?php echo h($stat['category']); ?></td>
+                                    <td class="num amt-out mono">-<?php echo h(formatCents($stat['cents'])); ?></td>
+                                    <td class="num mono"><?php echo h((string) ($categoryTotalCents > 0 ? (int) (($stat['cents'] / $categoryTotalCents) * 100) : 0)); ?>%</td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    <?php
+                    }
+                    ?>
                 </div>
                 <?php if (!empty($categoryBudgetStatus)): ?>
                 <div class="category-budget-status" aria-label="類別預算狀態">

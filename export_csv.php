@@ -50,7 +50,9 @@ $safeLedgerName = preg_replace('/[^\p{L}\p{N}_-]/u', '_', $ledger['name']);
 $filename = 'ledger_' . $ledgerId . '_' . $safeLedgerName . '_' . date('Ymd_His') . '.csv';
 
 header('Content-Type: text/csv; charset=utf-8');
-header('Content-Disposition: attachment; filename="' . $filename . '"');
+// RFC 5987 格式防止檔名標頭注入 (SEC-02)
+$encodedFilename = rawurlencode($filename);
+header("Content-Disposition: attachment; filename*=UTF-8''{$encodedFilename}");
 header('Pragma: no-cache');
 header('Expires: 0');
 
@@ -63,29 +65,36 @@ fwrite($output, "\xEF\xBB\xBF");
 fputcsv($output, ['日期', '類型', '金額 (元)', '分類', '記錄者', '備註']);
 
 // 輸出資料列（含 CSV 公式注入防護）
-foreach ($entries as $row) {
-    $date = $row['entry_date'];
-    $type = $row['type'] === 'income' ? '收入' : ($row['type'] === 'expense' ? '支出' : '轉帳');
-    // 金額以整數分儲存，顯示時改用整數運算避免浮點誤差（FIND-019）
-    $dollars = intdiv((int) $row['amount_cents'], 100);
-    $centsPart = (int) $row['amount_cents'] % 100;
-    $amount = $dollars . '.' . str_pad((string) $centsPart, 2, '0', STR_PAD_LEFT);
-    $category = $row['category'];
-    $username = $row['username'];
-    $description = (string) ($row['note'] ?? '');
+try {
+    foreach ($entries as $row) {
+        $date = $row['entry_date'];
+        $type = $row['type'] === 'income' ? '收入' : ($row['type'] === 'expense' ? '支出' : '轉帳');
+        // 金額以整數分儲存，顯示時使用 formatCents() 避免浮點誤差（SPEC-01 / CODE-01）
+        $amount = formatCents((int) $row['amount_cents']);
+        $category = $row['category'];
+        $username = $row['username'];
+        $description = (string) ($row['note'] ?? '');
 
-    // 依資安規範 SEC-03：CSV 公式注入防護 (Formula Injection)
-    // 若欄位開頭為 =, +, -, @, \t, \r，強制在前方加上單引號，避免 Excel 等軟體將其解析為公式
-    $formulaPrefixes = ['=', '+', '-', '@', "\t", "\r"];
-    foreach ([&$category, &$description, &$username] as &$field) {
-        if ($field !== '' && in_array($field[0], $formulaPrefixes, true)) {
-            $field = "'" . $field;
+        // 依資安規範 SEC-03：CSV 公式注入防護 (Formula Injection)
+        // 若欄位開頭為 =, +, -, @, \t, \r，強制在前方加上單引號，避免 Excel 等軟體將其解析為公式
+        $formulaPrefixes = ['=', '+', '-', '@', "\t", "\r"];
+        foreach ([&$date, &$type, &$category, &$username, &$description] as &$field) {
+            if ($field !== '' && in_array($field[0], $formulaPrefixes, true)) {
+                $field = "'" . $field;
+            }
         }
-    }
-    unset($field);
+        unset($field);
 
-    fputcsv($output, [$date, $type, $amount, $category, $username, $description]);
+        fputcsv($output, [$date, $type, $amount, $category, $username, $description]);
+    }
+} catch (Throwable $e) {
+    logError('export_csv_failed', $e->getMessage());
+    http_response_code(500);
+    exit;
 }
+
+// 審計日誌：記錄 CSV 匯出操作 (SPEC-01 / SEC-01)
+logAudit('csv_export', 'ledger_id=' . $ledgerId . ' count=' . count($entries));
 
 fclose($output);
 exit;

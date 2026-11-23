@@ -58,14 +58,6 @@ if ($apiKey === '') {
 $userId = (int) ($_SESSION['user_id'] ?? 0);
 if ($userId > 0) {
     $pdo = getPdo();
-    $pdo->exec(<<<'SQL'
-    CREATE TABLE IF NOT EXISTS api_rate_limits (
-        identifier TEXT    NOT NULL,
-        created_at TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_api_rate_limits_identifier ON api_rate_limits(identifier);
-    CREATE INDEX IF NOT EXISTS idx_api_rate_limits_created_at ON api_rate_limits(created_at);
-    SQL);
     // 清理超過 24 小時的舊紀錄
     $cutoff = date('Y-m-d H:i:s', strtotime('-24 hours'));
     $pdo->prepare('DELETE FROM api_rate_limits WHERE created_at < :cutoff')
@@ -100,7 +92,7 @@ $prompt = <<<'PROMPT'
 - type：收入或支出，請用 "income" 或 "expense"
 - amount：金額（元），數字，至多小數點後兩位，必須大於 0
 - category：分類中文，例如 餐費、薪資、交通、娛樂
-- date：日期 Y-m-dd，若未提及則用今天（Asia/Taipei）
+- date：日期 Y-m-d，若未提及則用今天（Asia/Taipei）
 - description：備註，可為空字串
 
 使用者輸入：__TEXT__
@@ -136,7 +128,7 @@ $curlError = curl_error($ch);
 curl_close($ch);
 
 if ($response === false || $httpCode !== 200) {
-    error_log('Gemini API error (http=' . $httpCode . '): ' . $curlError . ' response=' . (string) $response);
+    error_log('Gemini API error (http=' . $httpCode . '): ' . $curlError);
     http_response_code(502);
     echo json_encode(['ok' => false, 'error' => 'AI 解析服務暫時無法使用，請稍後再試或手動填寫。'], JSON_UNESCAPED_UNICODE);
     exit;
@@ -175,6 +167,9 @@ $result = [];
 $result['type'] = isset($parsed['type']) && in_array($parsed['type'], ['income', 'expense'], true)
     ? $parsed['type'] : null;
 $amountCents = isset($parsed['amount']) ? toCents((string) $parsed['amount']) : null;
+// 前端表單預期「元」字串格式（如 "120.00"），直接回傳 amount 供前端使用
+$result['amount'] = ($amountCents !== false && $amountCents > 0) ? formatCents($amountCents) : null;
+// 保留 amount_cents 供參考/除錯
 $result['amount_cents'] = ($amountCents !== false && $amountCents > 0) ? $amountCents : null;
 $result['category'] = isset($parsed['category']) && is_string($parsed['category']) && $parsed['category'] !== ''
     ? trim($parsed['category']) : null;

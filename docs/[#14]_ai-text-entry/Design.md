@@ -5,10 +5,10 @@
 | 項目 | 內容 |
 | --- | --- |
 | 名稱 | AI 自然語言記帳設計（Gemini API 後端代理） |
-| 版本 | v1.1 |
+| 版本 | v1.2 |
 | 建立日期 | 2026-11-21 |
-| 更新日期 | 2026-11-22 |
-| 變更摘要 | v1.1 移除語音輸入支援，改為純文字自然語言解析；依 Planning 規範與獨立審查 SEC-01（API Key 僅後端持有、後端代理中繼）撰寫。 |
+| 更新日期 | 2026-11-23 |
+| 變更摘要 | v1.2 修正 Critical/High 問題：移除語音功能殘留代碼、修正 CSRF Token 傳遞、修正 API Key 洩漏風險、將 rate limit 表建立移至 db.php、修正 amount/amount_cents 欄位不一致、Prompt 日期格式修正。v1.1 移除語音輸入支援，改為純文字自然語言解析。 |
 
 ## 1. 變更概述
 
@@ -25,7 +25,7 @@
 - **入口**：在 `add_entry.php` 新增「AI 自然語言記帳」按鈕與文字輸入區，點擊後展開 AI 輔助區塊，**僅提供文字輸入框**，不支援 Web Speech API 語音轉文字。
 - **驗證**：呼叫 `ai_parse.php` 時須先經 `requireLogin()`，僅登入使用者可使用；不區分角色（member/owner/viewer 均可使用，但最終寫入仍受 add_entry 權限限制）。
 - **API Key 管理**：`GEMINI_API_KEY` 僅存於後端 `config.php` / 環境變數，前端絕不接觸金鑰；所有 Gemini 請求由後端 PHP 代理中繼，前端僅與 `ai_parse.php` 通訊。
-- **CSRF**：`ai_parse.php` 作為 JSON API 端點，採用 session 驗證（`requireLogin` 已綁定 session），不另外發 CSRF token；前端呼叫時帶同-origin session cookie 即可。
+- **CSRF**：`ai_parse.php` 作為 JSON API 端點，驗證 `X-CSRF-Token` header（由前端從表單 `csrf_token` 欄位取得），以 `hash_equals()` 恆時比較，防止 CSRF 攻擊。
 
 ## 4. 資料流與實作路徑（Mermaid）
 
@@ -82,8 +82,9 @@ flowchart TD
 | --- | --- |
 | 第 1 次審查（v1.0） | 待執行（預期檢查 SEC-01 API Key 外洩風險、前後端介面契約、文字輸入行為） |
 | 第 2 次審查（v1.1） | 2026-11-22：確認移除語音輸入相關程式碼與樣式，簡化前端實作 |
+| 第 3 次審查（v1.2） | 2026-11-23：修正 Critical/High 問題（語音殘留、CSRF Token 傳遞、API Key 洩漏、rate limit 表建立位置、amount/amount_cents 不一致、Prompt 日期格式） |
 
-## 8. 實作紀錄（2026-11-22）
+## 8. 實作紀錄（2026-11-23 更新 v1.2）
 
 | 檔案 | 變更內容 |
 | --- | --- |
@@ -92,3 +93,6 @@ flowchart TD
 | `ai_parse.php`（新） | 後端代理 API：`requireLogin` 驗證、接收文字、呼叫 Gemini API、清除 Markdown 代碼區塊、`json_decode`、嚴格欄位驗證、回傳 JSON；錯誤時回傳友善訊息不中斷主流程 |
 | `add_entry.php` | 新增「AI 自然語言記帳」輔助區塊（展開/摺疊、文字輸入框、「解析並填入表單」按鈕、清除按鈕、狀態回饋）；前端以 `fetch` 呼叫 `./ai_parse.php`，解析成功後自動填入金額、分類、日期、類型、備註欄位；不直接寫入資料庫，使用者確認後才儲存 |
 | `assets/style.css` | 新增 `.ai-assist`、`.ai-head`、`.ai-toggle`、`.ai-panel`、`.ai-input-group`、`.ai-textarea`、`.ai-actions`、`.ai-status` 等樣式，**移除 `.ai-voice-btn` 語音按鈕樣式**，含 720px 手機版調整 |
+| `ai_parse.php` | v1.2 修正：移除動態建表邏輯（改由 db.php ensureSchema 建立 api_rate_limits）、error_log 移除 response 記錄防 API Key 洩漏、Prompt 日期格式 Y-m-d、回傳 amount（元字串）供前端直接使用、保留 amount_cents 供參考 |
+| `assets/ai-parse.js` | v1.2 修正：fetch headers 加入 X-CSRF-Token，移除語音輸入相關邏輯與變數 |
+| `db.php` | v1.2 新增：ensureSchema() 中加入 api_rate_limits 表與索引建立 |

@@ -109,6 +109,13 @@ function ensureSchema(PDO $pdo): void
         updated_at   TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
     );
 
+    CREATE TABLE IF NOT EXISTS api_rate_limits (
+        identifier TEXT    NOT NULL,
+        created_at TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_api_rate_limits_identifier ON api_rate_limits(identifier);
+    CREATE INDEX IF NOT EXISTS idx_api_rate_limits_created_at ON api_rate_limits(created_at);
+
     CREATE TABLE IF NOT EXISTS audit_log (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id    INTEGER,               -- 未登入/未知使用者時為 NULL

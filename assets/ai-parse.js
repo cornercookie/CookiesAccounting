@@ -5,7 +5,6 @@
   var toggle = document.querySelector('.ai-toggle');
   var panel = document.getElementById('ai-panel');
   var aiText = document.getElementById('aiText');
-  var aiVoiceBtn = document.getElementById('aiVoiceBtn');
   var aiParseBtn = document.getElementById('aiParseBtn');
   var aiClearBtn = document.getElementById('aiClearBtn');
   var aiStatus = document.getElementById('aiStatus');
@@ -27,44 +26,11 @@
     aiStatus.className = 'ai-status';
   });
 
-  // 語音輸入（Web Speech API，不支援則隱藏按鈕）
-  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    aiVoiceBtn.style.display = 'none';
-  } else {
-    var recognition = new SpeechRecognition();
-    recognition.lang = 'zh-TW';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-
-    aiVoiceBtn.addEventListener('click', function () {
-      aiStatus.textContent = '請說話……';
-      aiStatus.className = 'ai-status ai-listening';
-      recognition.start();
-    });
-
-    recognition.onresult = function (event) {
-      var transcript = event.results[0][0].transcript;
-      aiText.value = transcript;
-      aiStatus.textContent = '已轉錄語音，點擊「解析並填入表單」。';
-      aiStatus.className = 'ai-status';
-    };
-
-    recognition.onerror = function () {
-      aiStatus.textContent = '語音辨識失敗，請改用文字輸入。';
-      aiStatus.className = 'ai-status ai-error';
-    };
-
-    recognition.onend = function () {
-      aiStatus.className = 'ai-status';
-    };
-  }
-
   // 呼叫後端 ai_parse.php 解析文字，並填入表單欄位
   aiParseBtn.addEventListener('click', function () {
     var text = aiText.value.trim();
     if (!text) {
-      aiStatus.textContent = '請先輸入或說出收支內容。';
+      aiStatus.textContent = '請先輸入收支內容。';
       aiStatus.className = 'ai-status ai-error';
       return;
     }
@@ -74,9 +40,14 @@
     aiStatus.textContent = '正在向 AI 解析…';
     aiStatus.className = 'ai-status';
 
+    var csrfToken = document.querySelector('input[name="csrf_token"]')?.value || '';
+
     fetch('./ai_parse.php', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'X-CSRF-Token': csrfToken
+      },
       body: JSON.stringify({ text: text })
     })
     .then(function (resp) { return resp.json(); })

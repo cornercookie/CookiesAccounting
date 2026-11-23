@@ -186,12 +186,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </button>
                     </div>
                     <div id="ai-panel" class="ai-panel" hidden>
-                        <p class="ai-hint">說一句話或輸入文字，例如「今天中午吃麵 120 元」，AI 會自動幫你填好金額、分類與日期。</p>
+                        <p class="ai-hint">輸入文字，例如「今天中午吃麵 120 元」，AI 會自動幫你填好金額、分類與日期。</p>
                         <div class="ai-input-group">
                             <textarea id="aiText" class="ai-textarea" rows="2" placeholder="輸入收支內容……"></textarea>
-                            <button type="button" id="aiVoiceBtn" class="ai-voice-btn" title="語音輸入">
-                                🎤
-                            </button>
                         </div>
                         <div class="ai-actions">
                             <button type="button" id="aiParseBtn" class="btn primary sm">解析並填入表單</button>

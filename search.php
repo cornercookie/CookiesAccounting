@@ -220,9 +220,15 @@ try {
     $userIds = array_unique(array_column($entries, 'user_id'));
     $usernames = [];
     if (!empty($userIds)) {
-        $placeholders = implode(',', array_fill(0, count($userIds), '?'));
-        $userStmt = $pdo->prepare("SELECT id, username FROM users WHERE id IN ($placeholders)");
-        $userStmt->execute($userIds);
+        $namedPlaceholders = [];
+        $uidParams = [];
+        foreach ($userIds as $i => $uid) {
+            $name = ':uid_' . $i;
+            $namedPlaceholders[] = $name;
+            $uidParams[$name] = (int) $uid;
+        }
+        $userStmt = $pdo->prepare("SELECT id, username FROM users WHERE id IN (" . implode(',', $namedPlaceholders) . ")");
+        $userStmt->execute($uidParams);
         while ($row = $userStmt->fetch()) {
             $usernames[$row['id']] = $row['username'];
         }

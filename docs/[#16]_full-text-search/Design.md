@@ -12,7 +12,7 @@
 
 ## 來源 Planning 與需求摘要
 
-- Planning 檔案：`docs/features/01_full_text_search/planning.md`
+- Planning 檔案：`docs/[#16]_full-text-search/planning.md`
 - 對應 Feature：全站記錄搜尋（新增 `search.php`）
 - 需求摘要：建立全站記錄搜尋功能，讓使用者可依關鍵字（類別、備註、成員）、金額範圍、日期範圍，在有存取權限的帳本中搜尋記帳記錄。結果以分頁顯示，所有輸出經 h() 轉義，查詢採用 PDO 預備陳述式。本期採用 LIKE 查詢，不引入 FTS；不儲存搜尋歷史；不提供搜尋條件儲存與重複使用。
 
@@ -108,7 +108,7 @@ sequenceDiagram
 | 檔案 | 修改內容 |
 | --- | --- |
 | `search.php`（新增） | 搜尋頁面：<br>1. 頁面頂端呼叫 `requireLogin()`，確認使用者已登入。<br>2. 取得目前登入使用者 `$userId = $_SESSION['user_id']`。<br>3. GET：顯示搜尋表單，欄位為關鍵字（keyword）、金額下限（amount_min）、金額上限（amount_max）、起始日期（date_from）、結束日期（date_to）、頁碼（page），表單含 `csrf_token` 隱藏欄位（`csrfToken()`），action 為 `./search.php`，method POST。<br>4. POST：驗證 CSRF（`checkCsrf()`）、驗證金額格式（`toCents()`）、驗證日期格式（`isValidDate()`），失敗回傳 HTTP 400 或顯示錯誤訊息。<br>5. 建立 PDO 預備陳述式查詢：`FROM entries e INNER JOIN ledger_access la ON la.ledger_id = e.ledger_id WHERE e.deleted = 0 AND la.user_id = :user_id`，動態加入關鍵字 LIKE（`%_\\` 已逃脫、`ESCAPE '\'`）、金額 BETWEEN、日期 BETWEEN 條件。<br>6. 結果依 `entry_date DESC, id DESC` 排序，`LIMIT 50 OFFSET :offset`，分頁每頁 50 筆，頁碼超出範圍自動修正。<br>7. 所有輸出欄位經 `h()` 轉義後顯示；無符合結果時顯示「沒有符合篩選條件的記錄」。<br>8. 呼叫 `logAudit('entry_search', 'keyword=... amountMin=... amountMax=... dateFrom=... dateTo=... resultCount=...')`。<br>9. 所有路徑 `./` 開頭，所有輸出 `h()` 轉義，所有 SQL 具名佔位符預備陳述式。 |
-| `assets/style.css` | 新增搜尋頁面表單與結果表格樣式（`.search-form`、`.search-result`、`.search-empty`、`.search-pager`），沿用既有 `.btn`、`.alert`、`.plate` 樣式，支援手機單欄顯示與 ≥44px 觸控目標。 |
+| `assets/style.css` | 新增搜尋頁面表單與結果表格樣式（`.search-form`、`.search-row`、`.search-result`、`.search-hint`、`.search-empty`、`.search-pager`、`.pager-info`、`.pager-links`、`.search-actions`），沿用既有 `.btn`、`.alert`、`.plate` 樣式，支援手機單欄顯示與 ≥44px 觸控目標。 |
 | 導航入口（建議） | 在側欄導航新增「全站搜尋」連結，連結至 `./search.php`，所有登入使用者均可見。視實作階段決定是否同步實作。 |
 | 無新增資料表 | 不涉及資料庫結構變更，無 migration。 |
 
@@ -235,3 +235,9 @@ sequenceDiagram
 | Spec（規格）審查 | ✅ 通過 | 2026-11-22 | 獨立第三方複審，實作符合 Design.md 所有驗收條件 |
 | Code（程式）審查 | ✅ 通過 | 2026-11-22 | 獨立第三方複審，程式碼品質、錯誤處理、效能達標 |
 | Security（資安）審查 | ✅ 通過 | 2026-11-22 | 獨立第三方複審，SQLi/XSS/CSRF/IDOR/錯誤外洩無風險 |
+
+| 階段 | 狀態 | 日期 | 備註 |
+| --- | --- | --- | --- |
+| Spec（規格）審查 | ✅ 通過 | 2026-11-24 | 第 2 輪複審，實作符合 Design.md 與 Planning 所有驗收條件 |
+| Code（程式）審查 | ✅ 通過 | 2026-11-24 | 第 2 輪複審，已修正 search.php 第 223-231 行為具名佔位符，符合 AGENTS.md 硬性約束 |
+| Security（資安）審查 | ✅ 通過 | 2026-11-24 | 第 2 輪複審，SQLi/XSS/CSRF/IDOR/錯誤外洩無風險 |

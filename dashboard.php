@@ -336,7 +336,7 @@ try {
                                     <th colspan="4" class="group-h">本月</th>
                                     <th colspan="3" class="group-h group-start">總表</th>
                                     <th class="num hide-m" rowspan="2">記錄數</th>
-                                    <th class="ctr" rowspan="2">進入</th>
+                                    <th class="ctr" rowspan="2">操作</th>
                                 </tr>
                                 <tr>
                                     <th class="num">收入</th>
@@ -375,7 +375,13 @@ try {
                                         <td class="num amt-out">-<?php echo h(formatCents((int) $ls['total_expense'])); ?></td>
                                         <td class="num"><?php echo h($lsTotalBalance >= 0 ? '+' : '') . h(formatCents($lsTotalBalance)); ?></td>
                                         <td class="num hide-m"><?php echo h((string) $ls['entry_count']); ?></td>
-                                        <td class="ctr"><a href="./ledger.php?ledger_id=<?php echo h((string) $ls['id']); ?>" class="btn sm">進入</a></td>
+                                        <td class="ctr">
+                                            <div class="actions">
+                                                <a href="./ledger.php?ledger_id=<?php echo h((string) $ls['id']); ?>" class="btn sm">進入</a>
+                                                <a href="./yearly_report.php?ledger_id=<?php echo h((string) $ls['id']); ?>" class="btn sm secondary">年度報表</a>
+                                                <a href="./quarterly_report.php?ledger_id=<?php echo h((string) $ls['id']); ?>" class="btn sm secondary">季度報表</a>
+                                            </div>
+                                        </td>
                                     </tr>
                                 <?php endforeach; ?>
                             </tbody>

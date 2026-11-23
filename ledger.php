@@ -491,12 +491,14 @@ if (!empty($_SESSION['voice_played'])) {
                         <h1><?php echo h($ledger['name']); ?></h1>
                         <p class="sub">您的身份：<span class="role-tag <?php echo h($accessRole); ?>"><?php echo h($accessRole); ?></span>　·　檢視：<strong><?php echo h($ymLabel); ?></strong>　·　<a href="./ledgers.php">← 返回帳本列表</a></p>
                     </div>
-                    <div style="display: flex; gap: 8px;">
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                         <a href="./export_csv.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📥 匯出明細 CSV</a>
                         <?php if ($canWrite): ?>
                             <a href="./import_csv.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📤 匯入 CSV 明細</a>
                         <?php endif; ?>
                         <a href="./export_pdf.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📄 匯出 PDF 月結單</a>
+                        <a href="./yearly_report.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📊 年度報表</a>
+                        <a href="./quarterly_report.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📈 季度報表</a>
                         <?php if ($canWrite): ?>
                             <a href="./add_entry.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn primary">＋ 立傳票（新增記錄）</a>
                         <?php endif; ?>

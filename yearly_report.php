@@ -15,11 +15,28 @@ $success = (($_GET['success'] ?? '') === '1');
 $error   = (($_GET['error'] ?? '') === '1');
 $msg     = $_GET['msg'] ?? '';
 
+// 取得使用者可存取的帳本列表（供下拉選單）
+$stmt = $pdo->prepare('
+    SELECT l.id, l.name, la.role
+    FROM ledgers l
+    INNER JOIN ledger_access la ON la.ledger_id = l.id
+    WHERE l.archived = 0 AND la.user_id = :user_id
+    ORDER BY l.name
+');
+$stmt->execute([':user_id' => $userId]);
+$accessibleLedgers = $stmt->fetchAll();
+
 // 讀取 ledger_id，驗證為整數，並確認使用者有存取權
 $ledgerIdRaw = $_GET['ledger_id'] ?? null;
 $ledgerId = filter_var($ledgerIdRaw, FILTER_VALIDATE_INT);
+
+// 若未提供 ledger_id 但使用者只有一個可存取帳本，自動選擇該帳本
 if ($ledgerId === false || $ledgerId === null) {
-    redirect('./ledgers.php?error=1');
+    if (count($accessibleLedgers) === 1) {
+        $ledgerId = (int) $accessibleLedgers[0]['id'];
+    } else {
+        redirect('./ledgers.php?error=1');
+    }
 }
 
 // 驗證帳本存取權限（owner / member / viewer 均可檢視）
@@ -52,56 +69,40 @@ if (!is_string($yearRaw) || !preg_match('/^\d{4}$/', $yearRaw)) {
 $startDate = $year . '-01-01';
 $endDate   = $year . '-12-31';
 
-// 查詢各月份收支彙總（使用 strftime 分組，CASE 聚合計算各類總額）
-$stmt = $pdo->prepare('
-    SELECT
-        strftime(\'%Y-%m\', e.entry_date) AS ym,
-        SUM(CASE WHEN e.type = \'income\' THEN e.amount_cents ELSE 0 END) AS income_cents,
-        SUM(CASE WHEN e.type = \'expense\' THEN e.amount_cents ELSE 0 END) AS expense_cents,
-        SUM(CASE WHEN e.type = \'transfer\' THEN e.amount_cents ELSE 0 END) AS transfer_cents
-    FROM entries e
-    INNER JOIN ledger_access la ON la.ledger_id = e.ledger_id AND la.user_id = :user_id
-    WHERE e.ledger_id = :ledger_id
-      AND e.deleted = 0
-      AND e.entry_date BETWEEN :startDate AND :endDate
-    GROUP BY ym
-    ORDER BY ym
-');
+// 年份下拉選單選項（當年 ±2 年）
+$currentYear = (int) $today->format('Y');
+$yearOptions = range($currentYear - 2, $currentYear + 2);
+
+// 使用共用函數查詢彙總資料
+[$entries, $monthlyStatsRaw, $queryError] = fetchEntriesWithStats($pdo, $userId, $ledgerId, $startDate, $endDate);
+
 $monthlyStats = [];
 $totalIncomeCents  = 0;
 $totalExpenseCents = 0;
 $totalTransferCents = 0;
 $totalBalanceCents = 0;
 
-try {
-    $stmt->execute([
-        ':user_id'      => $userId,
-        ':ledger_id'    => $ledgerId,
-        ':startDate'    => $startDate,
-        ':endDate'      => $endDate,
-    ]);
-} catch (Throwable $e) {
-    logError('yearly_report.php query failed: ' . $e->getMessage());
+if ($queryError !== '') {
     $error = true;
-    $msg = '報表查詢失敗，請稍後再試。';
+    $msg = $queryError;
+} else {
+    foreach ($monthlyStatsRaw as $row) {
+        $income  = (int) $row['income_cents'];
+        $expense = (int) $row['expense_cents'];
+        $transfer= (int) $row['transfer_cents'];
+        $monthlyStats[] = [
+            'ym'        => (string) $row['ym'],
+            'income'    => $income,
+            'expense'   => $expense,
+            'transfer'  => $transfer,
+            'balance'   => $income - $expense,
+        ];
+        $totalIncomeCents  += $income;
+        $totalExpenseCents += $expense;
+        $totalTransferCents += $transfer;
+    }
+    $totalBalanceCents = $totalIncomeCents - $totalExpenseCents;
 }
-
-while ($row = $stmt->fetch()) {
-    $income  = (int) $row['income_cents'];
-    $expense = (int) $row['expense_cents'];
-    $transfer= (int) $row['transfer_cents'];
-    $monthlyStats[] = [
-        'ym'        => (string) $row['ym'],
-        'income'    => $income,
-        'expense'   => $expense,
-        'transfer'  => $transfer,
-        'balance'   => $income - $expense,
-    ];
-    $totalIncomeCents  += $income;
-    $totalExpenseCents += $expense;
-    $totalTransferCents += $transfer;
-}
-$totalBalanceCents = $totalIncomeCents - $totalExpenseCents;
 ?>
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -110,6 +111,25 @@ $totalBalanceCents = $totalIncomeCents - $totalExpenseCents;
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>年度報表 - 全家人記帳系統</title>
     <link rel="stylesheet" href="./assets/style.css?v=20261115-8">
+    <style>
+        /* 年度報表列印樣式 */
+        @media print {
+            .side, .nav, .ctr-actions, .quick, .font-size-toggle, .filters {
+                display: none !important;
+            }
+            .main { margin: 0; padding: 0; }
+            .sheet { width: 100%; max-width: 100%; }
+            body { background: #fff; color: #000; }
+            .plate { border: 1px solid #000; }
+            .v { color: #000; }
+            .report-table, .report-table tfoot tr { page-break-inside: avoid; }
+            .report-table tfoot tr td {
+                background: var(--paper-2) !important;
+                border-top: 2px solid #000 !important;
+                font-weight: 700;
+            }
+        }
+    </style>
 </head>
 <body>
     <div class="app">
@@ -155,12 +175,27 @@ $totalBalanceCents = $totalIncomeCents - $totalExpenseCents;
                     <p class="alert error" role="alert"><?php echo h($msg !== '' ? $msg : '操作失敗：請檢查輸入後重試。'); ?></p>
                 <?php endif; ?>
 
-                <!-- 年份選擇表單 -->
+                <!-- 年份與帳本選擇表單 -->
                 <form method="GET" action="./yearly_report.php" class="filters" aria-label="選擇年份與帳本">
-                    <input type="hidden" name="ledger_id" value="<?php echo h((string) $ledgerId); ?>">
+                    <label class="filter">
+                        <span class="filter-label">帳本</span>
+                        <select name="ledger_id" class="select filter-input" required>
+                            <?php foreach ($accessibleLedgers as $l): ?>
+                                <option value="<?php echo h((string) $l['id']); ?>"<?php echo $l['id'] == $ledgerId ? ' selected' : ''; ?>>
+                                    <?php echo h($l['name']); ?> (<?php echo h($l['role']); ?>)
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
                     <label class="filter">
                         <span class="filter-label">年份</span>
-                        <input type="text" name="year" class="input mono filter-input" value="<?php echo h($year); ?>" maxlength="4" placeholder="例如 2026">
+                        <select name="year" class="select mono filter-input">
+                            <?php foreach ($yearOptions as $y): ?>
+                                <option value="<?php echo h((string) $y); ?>"<?php echo $y == $year ? ' selected' : ''; ?>>
+                                    <?php echo h((string) $y); ?> 年
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
                     </label>
                     <button type="submit" class="btn primary sm">查詢</button>
                 </form>
@@ -189,14 +224,16 @@ $totalBalanceCents = $totalIncomeCents - $totalExpenseCents;
                                     <td class="num"><?php echo h($stat['balance'] >= 0 ? '+' : '') . h(formatCents($stat['balance'])); ?></td>
                                 </tr>
                                 <?php endforeach; ?>
-                                <tr class="report-total">
+                            </tbody>
+                            <tfoot>
+                                <tr class="report-total-row">
                                     <td><strong>年度總計</strong></td>
                                     <td class="num amt-in">+<?php echo h(formatCents($totalIncomeCents)); ?></td>
                                     <td class="num amt-out">-<?php echo h(formatCents($totalExpenseCents)); ?></td>
                                     <td class="num amt-neutral"><?php echo h(formatCents($totalTransferCents)); ?></td>
                                     <td class="num"><?php echo h($totalBalanceCents >= 0 ? '+' : '') . h(formatCents($totalBalanceCents)); ?></td>
                                 </tr>
-                            </tbody>
+                            </tfoot>
                         </table>
                     </div>
                 <?php endif; ?>

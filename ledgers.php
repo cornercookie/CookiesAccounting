@@ -194,6 +194,8 @@ $archivedCount = (int) ($stmt->fetch()['archived_count'] ?? 0);
                                         <td class="ctr">
                                             <span class="actions">
                                                 <a href="./ledger.php?ledger_id=<?php echo h((string) $ledger['id']); ?>" class="btn sm">進入帳本</a>
+                                                <a href="./yearly_report.php?ledger_id=<?php echo h((string) $ledger['id']); ?>" class="btn sm secondary">年度報表</a>
+                                                <a href="./quarterly_report.php?ledger_id=<?php echo h((string) $ledger['id']); ?>" class="btn sm secondary">季度報表</a>
                                                 <?php if ($ledger['access_role'] !== 'viewer'): ?>
                                                     <a href="./add_entry.php?ledger_id=<?php echo h((string) $ledger['id']); ?>" class="btn sm secondary">新增記錄</a>
                                                 <?php endif; ?>

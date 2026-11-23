@@ -232,9 +232,28 @@ td.amt-neutral { color: var(--ink); font-weight: 700; }
     font-weight: 700;
 }
 
+/* 報表總計列（用於 tfoot tr） */
+.report-table tfoot tr.report-total-row,
+.report-table tbody tr.report-total-row {
+    background: var(--paper-2);
+}
+.report-table tfoot tr.report-total-row td,
+.report-table tbody tr.report-total-row td {
+    font-weight: 700;
+    border-top: 2px solid var(--ink);
+}
+.report-table tfoot tr.report-total-row td:first-child,
+.report-table tbody tr.report-total-row td:first-child {
+    border-top-left-radius: var(--radius);
+}
+.report-table tfoot tr.report-total-row td:last-child,
+.report-table tbody tr.report-total-row td:last-child {
+    border-top-right-radius: var(--radius);
+}
+
 /* 年度／季度報表列印樣式，參照 ledger.php */
 @media print {
-    .side, .nav, .ctr-actions, .quick, .font-size-toggle {
+    .side, .nav, .ctr-actions, .quick, .font-size-toggle, .filters {
         display: none !important;
     }
     .main { margin: 0; padding: 0; }
@@ -243,6 +262,11 @@ td.amt-neutral { color: var(--ink); font-weight: 700; }
     .plate { border: 1px solid #000; }
     .v { color: #000; }
     .report-table, .report-total { page-break-inside: avoid; }
+    .report-table tfoot tr.report-total-row td {
+        background: var(--paper-2) !important;
+        border-top: 2px solid #000 !important;
+        font-weight: 700;
+    }
 }
 
 /* 匯出 PDF 月結單頁面樣式（TCPDF 載入失敗時的列印優化 HTML 頁面）*/

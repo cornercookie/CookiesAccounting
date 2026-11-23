@@ -5,10 +5,10 @@
 | 項目 | 內容 |
 | --- | --- |
 | 名稱 | 拍照收據 / 發票小圖夾設計 |
-| 版本 | v1.0 |
+| 版本 | v1.1 |
 | 建立日期 | 2026-11-21 |
-| 更新日期 | 2026-11-21 |
-| 變更摘要 | v1.0 初稿送審。依獨立審查 SEC-02（私密上傳隨機命名、WebShell 防護、MIME 檢查）與Planning 規範撰寫。 |
+| 更新日期 | 2026-11-23 |
+| 變更摘要 | v1.1 修正縮圖顯示機制（mode=inline/download）、移除重複程式碼至 functions.php 共用、補充審計日誌代碼表、Nginx 部署範例、.htaccess 範例、權限要求、效能備註。依獨立審查報告修正。 |
 
 ## 1. 變更概述
 
@@ -23,6 +23,22 @@
   - 上傳時強制以 `bin2hex(random_bytes(16))` 重新命名，禁止保留原始檔名（防止 WebShell 與檔名碰撞）。
   - 嚴格檢查 MIME Type（`finfo_file`）與副檔名（允許 jpeg/png/webp），大小上限 5MB。
   - 讀取圖片時透過後端 PHP 路由（如 `view_receipt.php`）驗證使用者對該 records 的存取權限後串流輸出。
+- **私密目錄權限要求（SPEC-05）**：
+  - `private_data/uploads/` 目錄：`0770`（擁有者為 Web 伺服器使用者，群組僅限同群組存取）。
+  - 上傳檔案：`0640`（擁有者讀寫、群組讀取、其他無權限）。
+- **上傳目錄 `.htaccess` 內容（SPEC-04）**：
+  `private_data/uploads/.htaccess`：
+  ```apache
+  # Family Accounting System — block direct web access to uploaded receipts
+  # Apache 2.4+
+  <IfModule mod_authz_core.c>
+      Require all denied
+  </IfModule>
+  # Apache 2.2 fallback
+  <IfModule !mod_authz_core.c>
+      Deny from all
+  </IfModule>
+  ```
 
 ## 3. 資料流與實作路徑
 
@@ -33,20 +49,73 @@
    - 寫入 `entries.receipt_path`。
 2. **顯示（`ledger.php`）**：
    - 在分錄表格的「備註」或獨立欄位顯示小圖圖示。
-   - 點擊時經由 `view_receipt.php?id=<entry_id>` 取得大圖（後端驗證 `ledger_access` 權限後串流輸出）。
+   - 縮圖：`<img src="./view_receipt.php?id=<entry_id>&mode=inline">`，後端以 `Content-Disposition: inline` 回應。
+   - 大圖：`<a href="./view_receipt.php?id=<entry_id>">`（預設 `mode=download`），後端以 `Content-Disposition: attachment` 強制下載。
+   - `view_receipt.php` 另支援條件快取（ETag/Last-Modified），減少重複下載頻寬。
 3. **作廢清理（`delete_entry.php`）**：
    - 作廢記錄時，若 `receipt_path` 非空，一併 `unlink()` 刪除實體圖片。
 
-## 4. 驗證與測試計畫
+### 3.1 縮圖顯示技術方案（SPEC-01 修正）
+
+為同時滿足「明細頁內嵌縮圖預覽」與「大圖安全下載」兩種行為，`view_receipt.php` 採用查詢參數 `mode` 區分：
+
+| 模式 | 參數 | Content-Disposition | 用途 |
+|------|------|---------------------|------|
+| 縮圖內嵌 | `?mode=inline` | `inline` | 明細頁 `<img>` 顯示 48×48 縮圖 |
+| 大圖下載 | `?mode=download` 或無參數 | `attachment` | 點擊放大、另存新檔 |
+
+此設計避免單一端點同時服務兩種相衝突的回應標頭，並保持私密目錄不被直接公開。
+
+### 3.2 已知限制與效能考量（CODE-02）
+
+> **已知限制**：明細頁縮圖直接載入原圖（最大 5MB），再由瀏覽器縮放至 48×48。大量資料時（如 50 筆 × 5MB = 250MB）頻寬較大，手機網路下載緩慢。
+>
+> **未來可考慮**：
+> 1. 上傳時同步產生縮圖（如 200×200，儲存為 `private_data/uploads/thumb_<random>.jpg`），縮圖端點回傳較小檔案；
+> 2. 或 `view_receipt.php` 支援 `?w=200&h=200` 參數即時縮放（需 GD/Imagick）。
+
+## 4. 審計日誌動作代碼對照表（SPEC-02）
+
+| 動作 | action 代碼 | detail 範例 |
+|------|-------------|-------------|
+| 建立記錄（含收據） | `entry_create` | `entry #123 · ledger 1 · expense · 123.45` |
+| 編輯記錄（更換收據） | `entry_edit` | 同上 |
+| 作廢記錄（清理收據） | `entry_delete` | `entry #123 · ledger 1` |
+| 檢視收據大圖 | `entry_receipt_view` | `entry #123 · receipt private_data/uploads/abc.jpg` |
+
+> 所有關鍵操作皆寫入 `audit_log` 表，僅新增不刪除（符合 Planning SEC-02）。
+
+## 5. 驗證與測試計畫
 
 - 上傳 JPEG/PNG/WebP 成功，上傳 PHP/HTML 檔被拒。
 - 檔案大小超過 5MB 被拒。
 - 未登入或無權限者無法存取 `view_receipt.php`。
 - 作廢記錄時關聯圖片被清理。
 - 上傳失敗時（格式不符、超過 5MB），表單重新顯示並提示錯誤，不靜默新增記錄。
+- **縮圖正確顯示於明細表**（`mode=inline` 內嵌，不觸發下載）。
+- 編輯更換收據後舊檔被刪除。
+- **審計日誌正確記錄 `entry_create`、`entry_edit`、`entry_delete`、`entry_receipt_view` 四種 action 代碼**。
 
-## 5. 實作註記（範圍說明）
+## 6. 實作註記（範圍說明）
 
-- 收據上傳實作於 **新增記錄（`add_entry.php`）** 與 **編輯記錄（`edit_entry.php`）**，兩者共用 `handleReceiptUpload()` 與 `view_receipt.php` 權限驗證。
+- 收據上傳實作於 **新增記錄（`add_entry.php`）** 與 **編輯記錄（`edit_entry.php`）**，兩者共用 `functions.php::handleReceiptUpload()` 與 `view_receipt.php` 權限驗證。
 - 編輯記錄時若上傳新收據，會先刪除舊收據實體檔，再儲存新圖片並更新 `entries.receipt_path`。
+- `view_receipt.php` 支援條件快取：回傳 `ETag`（`md5_file + size`）與 `Last-Modified`，檢查 `If-None-Match` / `If-Modified-Since`，符合時回傳 304 Not Modified（CODE-03）。
 - 部署於 Nginx 時，`.htaccess` 不生效，需於伺服器層級另行封鎖 `private_data/uploads/` 直接存取。
+
+### 6.1 Nginx 部署私密目錄防護範例（SPEC-03）
+
+```nginx
+# 方案 A：完全封鎖直接存取
+location /private_data/uploads/ {
+    deny all;
+    return 403;
+}
+
+# 方案 B：僅允許內部 redirect（X-Accel-Redirect）存取（需搭配 PHP 端設定 X-Accel-Redirect）
+# location /private_data/uploads/ {
+#     internal;
+# }
+```
+
+> 建議採用方案 A，簡單且安全；若需高效能串流可考慮方案 B 搭配 `X-Accel-Redirect`。

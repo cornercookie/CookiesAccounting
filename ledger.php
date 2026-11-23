@@ -848,7 +848,7 @@ if (!empty($_SESSION['voice_played'])) {
                                         <td class="receipt-col hide-m ctr">
                                             <?php if (!empty($entry['receipt_path'])): ?>
                                                 <a href="./view_receipt.php?id=<?php echo h((string) $entry['id']); ?>" class="receipt-thumb" target="_blank" rel="noopener noreferrer" title="檢視收據">
-                                                    <img src="./view_receipt.php?id=<?php echo h((string) $entry['id']); ?>" alt="收據" loading="lazy" width="48" height="48">
+                                                    <img src="./view_receipt.php?id=<?php echo h((string) $entry['id']); ?>&mode=inline" alt="收據" loading="lazy" width="48" height="48">
                                                 </a>
                                             <?php else: ?>
                                                 <span class="meta">—</span>

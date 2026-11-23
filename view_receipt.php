@@ -1,6 +1,7 @@
 <?php
 // 全家人記帳系統 — 收據圖片安全串流（SEC-02）
 // 僅允許擁有該帳本存取權限的使用者檢視收據；不直接公開 private_data/uploads/
+// 支援查詢參數 ?mode=inline 以內嵌顯示縮圖；預設 (mode=download) 強制下載
 declare(strict_types=1);
 
 require_once __DIR__ . '/functions.php';
@@ -18,6 +19,12 @@ $entryId = filter_var($entryIdRaw, FILTER_VALIDATE_INT);
 if ($entryId === false || $entryId === null) {
     http_response_code(400);
     exit('無效的記錄編號。');
+}
+
+// 解析模式參數：inline = 內嵌顯示（縮圖用），download = 強制下載（大圖用）
+$mode = $_GET['mode'] ?? 'download';
+if (!in_array($mode, ['inline', 'download'], true)) {
+    $mode = 'download';
 }
 
 // 查詢收據路徑，同時驗證使用者對該帳本的存取權限（IDOR 防護）
@@ -83,10 +90,30 @@ $mimeToExt = [
 ];
 $receiptExt = $mimeToExt[$mime] ?? 'bin';
 
-// 串流輸出：強制附件下載，避免瀏覽器內嵌顯示導致 Referer 洩漏
+// 條件快取：ETag (md5_file + size) 與 Last-Modified
+$fileSize = filesize($realPath);
+$fileMtime = filemtime($realPath);
+$etag = '"' . md5_file($realPath) . '-' . $fileSize . '"';
+$lastModified = gmdate('D, d M Y H:i:s', $fileMtime) . ' GMT';
+
+header('ETag: ' . $etag);
+header('Last-Modified: ' . $lastModified);
+
+// 檢查 If-None-Match / If-Modified-Since
+$ifNoneMatch = $_SERVER['HTTP_IF_NONE_MATCH'] ?? '';
+$ifModifiedSince = $_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? '';
+$etagMatches = ($ifNoneMatch !== '' && $ifNoneMatch === $etag);
+$modifiedSinceMatches = ($ifModifiedSince !== '' && strtotime($ifModifiedSince) >= $fileMtime);
+if ($etagMatches || $modifiedSinceMatches) {
+    http_response_code(304);
+    exit;
+}
+
+// 串流輸出：inline 內嵌顯示（縮圖），attachment 強制下載（大圖）
+$disposition = ($mode === 'inline') ? 'inline' : 'attachment';
 header('Content-Type: ' . $mime);
-header('Content-Disposition: attachment; filename="receipt-' . $entryId . '.' . $receiptExt . '"');
-header('Content-Length: ' . (string) filesize($realPath));
+header('Content-Disposition: ' . $disposition . '; filename="receipt-' . $entryId . '.' . $receiptExt . '"');
+header('Content-Length: ' . (string) $fileSize);
 header('Cache-Control: private, max-age=3600');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');

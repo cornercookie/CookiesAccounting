@@ -513,6 +513,87 @@ function fetchEntriesWithStats(PDO $pdo, int $userId, int $ledgerId, string $sta
 }
 
 /**
+ * 處理收據圖片上傳（SEC-02）。
+ *
+ * - 檢查上傳成功、大小上限 5MB、MIME Type（finfo_file）與副檔名（jpeg/png/webp）
+ * - 以 bin2hex(random_bytes(16)) 強制重新命名，禁止保留原始檔名
+ * - 儲存於 private_data/uploads/（目錄權限 0770、檔案權限 0640），回傳相對路徑；失敗回傳 false（不中斷主流程）
+ * - 供 add_entry.php、edit_entry.php 共用
+ *
+ * @return string|false 相對路徑（如 private_data/uploads/abc123.jpg）或 false
+ */
+function handleReceiptUpload(): string|false
+{
+    $file = $_FILES['receipt'] ?? null;
+    if (!is_array($file)) {
+        return false;
+    }
+
+    $error = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($error === UPLOAD_ERR_NO_FILE) {
+        return false;
+    }
+    if ($error !== UPLOAD_ERR_OK) {
+        return false;
+    }
+
+    $tmpName = (string) ($file['tmp_name'] ?? '');
+    $size    = (int) ($file['size'] ?? 0);
+    if ($tmpName === '' || !is_file($tmpName)) {
+        return false;
+    }
+    if ($size > 5 * 1024 * 1024) {
+        return false;
+    }
+
+    // MIME Type 檢查（finfo_file，不依賴 extension）
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    if ($finfo === false) {
+        logError('receipt upload: finfo_open failed (fileinfo extension unavailable)');
+        return false;
+    }
+    $mime = finfo_file($finfo, $tmpName);
+    finfo_close($finfo);
+    $allowedMime = [
+        'image/jpeg' => 'jpg',
+        'image/png'  => 'png',
+        'image/webp' => 'webp',
+    ];
+    if (!isset($allowedMime[$mime])) {
+        return false;
+    }
+    $ext = $allowedMime[$mime];
+
+    // 目標目錄（權限 0770）
+    $uploadDir = __DIR__ . '/private_data/uploads';
+    if (!is_dir($uploadDir) && !@mkdir($uploadDir, 0770, true) && !is_dir($uploadDir)) {
+        return false;
+    }
+
+    // 亂數重新命名（bin2hex(random_bytes(16)) + 副檔名）
+    $filename = bin2hex(random_bytes(16)) . '.' . $ext;
+    $destPath = $uploadDir . '/' . $filename;
+    if (!@move_uploaded_file($tmpName, $destPath)) {
+        return false;
+    }
+
+    // 儲存後再次以 finfo_file 確認實際檔案內容仍為允許的圖片（防上傳期間被替換）
+    $verifyMime = '';
+    $verifyFinfo = finfo_open(FILEINFO_MIME_TYPE);
+    if ($verifyFinfo) {
+        $verifyMime = finfo_file($verifyFinfo, $destPath);
+        finfo_close($verifyFinfo);
+    }
+    if (!in_array($verifyMime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+        @unlink($destPath);
+        return false;
+    }
+
+    @chmod($destPath, 0640);
+    return 'private_data/uploads/' . $filename;
+}
+
+/**
  * 輸出共用的頁面框架（side nav, header, footer）。
  *
  * @param array $user 當前使用者資料

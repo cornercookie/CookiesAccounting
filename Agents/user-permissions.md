@@ -57,6 +57,7 @@ graph TD
 | **匯出 CSV** | ✅ | ✅ | ✅ | ❌ | `export_csv.php` |
 | **匯出 PDF** | ✅ | ✅ | ✅ | ❌ | `export_pdf.php` |
 | **設定每月預算** | ✅ | ❌ | ❌ | ❌ | `ledger.php` POST `set_budget` |
+| **設定類別預算** | ✅ | ❌ | ❌ | ❌ | `category_budget.php` POST create/update/disable，僅 owner 可存取頁面（member／viewer 與非成員無法檢視） |
 | **建立重複記錄** | ✅ | ❌ | ❌ | ❌ | `ledger.php` POST `create_recurring` |
 | **編輯重複記錄** | ✅ | ❌* | ❌ | ❌ | 僅建立者或 owner/admin |
 | **停用重複記錄** | ✅ | ❌* | ❌ | ❌ | 僅建立者或 owner/admin |

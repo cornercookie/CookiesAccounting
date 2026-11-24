@@ -13,8 +13,11 @@ $userId = (int) $user['id'];
 
 // 解析 ledger_id（亦相容舊式 id 參數）
 $ledgerIdRaw = $_GET['ledger_id'] ?? $_GET['id'] ?? null;
+if ($ledgerIdRaw === null || $ledgerIdRaw === '') {
+    redirect('./ledgers.php?error=1');
+}
 $ledgerId = filter_var($ledgerIdRaw, FILTER_VALIDATE_INT);
-if ($ledgerId === false || $ledgerId === null) {
+if ($ledgerId === false || $ledgerId <= 0) {
     redirect('./ledgers.php?error=1');
 }
 
@@ -69,7 +72,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
 
 // 重複記錄：建立（Feature 11）
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '') === 'create_recurring') {
-    if (!checkCsrf($_POST['csrf_token'] ?? '')) {
+    if (!checkCsrf(is_string($_POST['csrf_token'] ?? '') ? $_POST['csrf_token'] : '')) {
         redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('安全驗證失敗，請重新操作。'));
     }
     if ($accessRole !== 'owner' && $accessRole !== 'admin') {
@@ -122,7 +125,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
 
 // 重複記錄：編輯（Feature 11）
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '') === 'edit_recurring') {
-    if (!checkCsrf($_POST['csrf_token'] ?? '')) {
+    if (!checkCsrf(is_string($_POST['csrf_token'] ?? '') ? $_POST['csrf_token'] : '')) {
         redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('安全驗證失敗，請重新操作。'));
     }
     $recurringId = filter_var($_POST['recurring_id'] ?? '', FILTER_VALIDATE_INT);
@@ -187,7 +190,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
 
 // 重複記錄：停用（Feature 11）
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '') === 'toggle_recurring') {
-    if (!checkCsrf($_POST['csrf_token'] ?? '')) {
+    if (!checkCsrf(is_string($_POST['csrf_token'] ?? '') ? $_POST['csrf_token'] : '')) {
         redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('安全驗證失敗，請重新操作。'));
     }
     $recurringId = filter_var($_POST['recurring_id'] ?? '', FILTER_VALIDATE_INT);
@@ -213,7 +216,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
 
 // 重複記錄：立即記一筆（Feature 11）
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '') === 'generate_recurring') {
-    if (!checkCsrf($_POST['csrf_token'] ?? '')) {
+    if (!checkCsrf(is_string($_POST['csrf_token'] ?? '') ? $_POST['csrf_token'] : '')) {
         redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('安全驗證失敗，請重新操作。'));
     }
     $recurringId = filter_var($_POST['recurring_id'] ?? '', FILTER_VALIDATE_INT);
@@ -252,7 +255,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
     redirect('./ledger.php?ledger_id=' . $ledgerId . '&success=1&msg=' . urlencode('已從重複記錄產生一筆記錄。'));
 }
 
-// 本帳查詢參數：月份（預設本月 Asia/Taipei）、類別、類型、頁碼——皆為唯讀查詢
+// 本帳查詢參數：月份（預設本月 Asia/Taipei）、單日（entry_date）、類別、類型、頁碼——皆為唯讀查詢
 $today = new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei'));
 $ymRaw = $_GET['ym'] ?? '';
 if (!is_string($ymRaw) || !preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ymRaw)) {
@@ -262,6 +265,13 @@ if (!is_string($ymRaw) || !preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ymRaw)) {
 }
 $monthStart = $ym . '-01';
 $monthEnd   = (new DateTimeImmutable($monthStart . ' 00:00:00', new DateTimeZone('Asia/Taipei')))->format('Y-m-t');
+
+// 單日參數解析（格式 Y-m-d，透過 isValidDate() 驗證）
+$entryDateRaw = $_GET['entry_date'] ?? '';
+$entryDate = null;
+if ($entryDateRaw !== '' && isValidDate($entryDateRaw)) {
+    $entryDate = $entryDateRaw;
+}
 
 $typeSel = $_GET['type'] ?? '';
 if (!in_array($typeSel, ['', 'income', 'expense', 'transfer'], true)) {
@@ -273,15 +283,28 @@ $perPage = 50;
 
 // 所選月份的收入／支出／轉帳彙總（不含類別/類型篩選；整數分儲存，顯示除以 100）
 // 轉帳（type='transfer'）不計入收入或支出，僅單獨統計
-$stmt = $pdo->prepare('
-    SELECT type, SUM(amount_cents) AS total_cents
-    FROM entries
-    WHERE ledger_id = :ledger_id
-      AND deleted = 0
-      AND entry_date BETWEEN :monthStart AND :monthEnd
-    GROUP BY type
-');
-$stmt->execute([':ledger_id' => $ledgerId, ':monthStart' => $monthStart, ':monthEnd' => $monthEnd]);
+// 若指定單日（entry_date），則以該日彙總取代月份範圍
+if ($entryDate !== null) {
+    $stmt = $pdo->prepare('
+        SELECT type, SUM(amount_cents) AS total_cents
+        FROM entries
+        WHERE ledger_id = :ledger_id
+          AND deleted = 0
+          AND entry_date = :entryDate
+        GROUP BY type
+    ');
+    $stmt->execute([':ledger_id' => $ledgerId, ':entryDate' => $entryDate]);
+} else {
+    $stmt = $pdo->prepare('
+        SELECT type, SUM(amount_cents) AS total_cents
+        FROM entries
+        WHERE ledger_id = :ledger_id
+          AND deleted = 0
+          AND entry_date BETWEEN :monthStart AND :monthEnd
+        GROUP BY type
+    ');
+    $stmt->execute([':ledger_id' => $ledgerId, ':monthStart' => $monthStart, ':monthEnd' => $monthEnd]);
+}
 $incomeCents  = 0;
 $expenseCents = 0;
 $transferCents = 0;
@@ -341,8 +364,14 @@ if ($accessRole === 'owner' || $accessRole === 'admin' || $accessRole === 'membe
 }
 
 // 條件子句（預備陳述式，具名佔位符）
-$where  = 'WHERE e.ledger_id = :ledger_id AND e.deleted = 0 AND e.entry_date BETWEEN :ms AND :me';
-$params = [':ledger_id' => $ledgerId, ':ms' => $monthStart, ':me' => $monthEnd];
+// 若指定單日（entry_date），則以該日篩選；否則以月份範圍篩選
+if ($entryDate !== null) {
+    $where  = 'WHERE e.ledger_id = :ledger_id AND e.deleted = 0 AND e.entry_date = :entryDate';
+    $params = [':ledger_id' => $ledgerId, ':entryDate' => $entryDate];
+} else {
+    $where  = 'WHERE e.ledger_id = :ledger_id AND e.deleted = 0 AND e.entry_date BETWEEN :ms AND :me';
+    $params = [':ledger_id' => $ledgerId, ':ms' => $monthStart, ':me' => $monthEnd];
+}
 if ($typeSel !== '') {
     $where .= ' AND e.type = :type';
     $params[':type'] = $typeSel;
@@ -385,6 +414,9 @@ $categories = $catStmt->fetchAll(PDO::FETCH_COLUMN);
 
 // 產生帶篩選的相對連結（沿用既有參數，覆寫指定鍵）
 $filterBase = ['ledger_id' => $ledgerId, 'ym' => $ym];
+if ($entryDate !== null) {
+    $filterBase['entry_date'] = $entryDate;
+}
 if ($typeSel !== '') {
     $filterBase['type'] = $typeSel;
 }
@@ -395,7 +427,7 @@ $filterUrl = function (array $overrides = []) use ($filterBase) {
     return './ledger.php?' . http_build_query(array_merge($filterBase, $overrides));
 };
 $ymLabel = (new DateTimeImmutable($monthStart))->format('Y 年 n 月');
-$isFiltered = ($typeSel !== '' || $catSel !== '');
+$isFiltered = ($typeSel !== '' || $catSel !== '' || $entryDate !== null);
 
 // 側欄「這本帳」：帳本編號、名稱與成員名單（含角色），讓共用帳本的面孔一眼可見
 $memberStmt = $pdo->prepare('SELECT u.username, la.role FROM ledger_access la INNER JOIN users u ON u.id = la.user_id WHERE la.ledger_id = :ledger_id ORDER BY u.username');
@@ -458,7 +490,8 @@ if (!empty($_SESSION['voice_played'])) {
             <nav class="nav" aria-label="主要導覽">
                 <p class="nav-h">帳務</p>
                 <a class="nav-item" href="./dashboard.php">儀表板</a>
-                <a class="nav-item active" href="./ledgers.php">帳本列表</a>
+                <a class="nav-item" href="./ledgers.php">帳本列表</a>
+                <a class="nav-item" href="./calendar.php">行事曆檢視</a>
                 <a class="nav-item" href="./search.php">全站搜尋</a>
                 <a class="nav-item" href="./change_password.php">變更密碼</a>
                 <?php if ($user['role'] === 'admin'): ?>

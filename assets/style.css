@@ -341,7 +341,7 @@ td.amt-neutral { color: var(--ink); font-weight: 700; }
 .btn.secondary:hover { background: var(--blue-tint); }
 .btn.danger { background: var(--red); border-color: var(--red-deep); color: #fffdf1; }
 .btn.danger:hover { background: var(--red-deep); }
-.btn.sm { padding: 7px var(--space-4); font-size: var(--text-sm); min-height: 38px; }
+.btn.sm { padding: 7px var(--space-4); font-size: var(--text-sm); min-height: 44px; }
 .btn:disabled, .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
 
 /* 空狀態（虛線騎縫線框） */
@@ -383,6 +383,7 @@ td.amt-neutral { color: var(--ink); font-weight: 700; }
 .alert { padding: var(--space-3) var(--space-4); margin-bottom: var(--space-4); border-radius: var(--radius); border: 1px solid; font-size: var(--text-sm); }
 .alert.error   { background: var(--red-tint); color: #7a241a; border-color: #e3b3ac; }
 .alert.success { background: #eaf1e6; color: #1d4a24; border-color: #bcd6ba; }
+.alert.hint    { background: #f4f6f8; color: #334155; border-color: #cbd5e1; }
 
 /* ---------- 文字 ---------- */
 h1, h2, h3, h4 { font-family: var(--font-display); }
@@ -874,6 +875,165 @@ table .receipt-col .meta {
 @media (max-width: 720px) {
     .category-budget-status { margin: var(--space-5) 0; }
     .budget-banner.category-budget { padding: var(--space-3); font-size: var(--text-xs); }
+}
+
+/* ============================================
+   行事曆檢視（[#17] 行事曆檢視功能）
+   ============================================ */
+.calendar-wrap {
+    margin: var(--space-6) 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--paper-2);
+}
+.calendar-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 560px;
+    font-size: var(--text-sm);
+}
+.calendar-table th,
+.calendar-table td {
+    padding: var(--space-3) var(--space-2);
+    border: 1px solid var(--line);
+    text-align: center;
+    vertical-align: middle;
+}
+.calendar-table th {
+    background: var(--paper-3);
+    color: var(--ink-2);
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: var(--text-xs);
+    letter-spacing: 0.08em;
+}
+.calendar-table caption {
+    caption-side: top;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: var(--text-lg);
+    letter-spacing: 0.02em;
+    margin-bottom: var(--space-2);
+    color: var(--ink);
+}
+.cal-day-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: 88px;
+    padding: var(--space-2) var(--space-1);
+    position: relative;
+}
+.cal-day-inner:hover {
+    background: var(--paper-3);
+    border-radius: var(--radius);
+}
+.cal-day-num {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: var(--text-base);
+    color: var(--ink);
+}
+.cal-day-other .cal-day-num {
+    color: var(--ink-3);
+}
+.cal-day-today .cal-day-num {
+    color: var(--blue);
+    font-weight: 700;
+}
+.cal-day-summary {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+.cal-amt {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    font-size: var(--text-xs);
+    line-height: 1.2;
+}
+.cal-amt-in { color: var(--red); }
+.cal-amt-out { color: var(--blue); }
+.cal-amt-transfer { color: var(--ink); }
+.cal-day-link {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--blue);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+}
+.cal-day-link:hover {
+    background: var(--blue-tint);
+    border-radius: var(--radius);
+    text-decoration: none;
+}
+.calendar-legend {
+    display: flex;
+    gap: var(--space-4);
+    align-items: center;
+    margin-top: var(--space-4);
+    font-size: var(--text-sm);
+    color: var(--ink-2);
+}
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+.legend-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+.legend-dot.cal-amt-in { background: var(--red); }
+.legend-dot.cal-amt-out { background: var(--blue); }
+.legend-dot.cal-amt-transfer { background: var(--ink); }
+
+/* 手機版行事曆調整 */
+@media (max-width: 720px) {
+    .calendar-wrap {
+        margin: var(--space-5) 0;
+        border: none;
+        border-radius: 0;
+        background: transparent;
+    }
+    .calendar-table {
+        min-width: 420px;
+        font-size: var(--text-xs);
+    }
+    .calendar-table th,
+    .calendar-table td {
+        padding: var(--space-2) var(--space-1);
+        font-size: var(--text-xs);
+    }
+    .calendar-table th {
+        font-size: var(--text-xs);
+        padding: var(--space-1);
+    }
+    .cal-day-inner {
+        min-height: 72px;
+        padding: var(--space-1);
+    }
+    .cal-day-num {
+        font-size: var(--text-sm);
+    }
+    .cal-amt {
+        font-size: var(--text-xs);
+    }
+    .cal-day-link {
+        font-size: var(--text-xs);
+    }
+    .calendar-legend {
+        flex-wrap: wrap;
+        gap: var(--space-3);
+        margin-top: var(--space-3);
+    }
 }
 
 

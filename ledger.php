@@ -532,6 +532,7 @@ if (!empty($_SESSION['voice_played'])) {
                         <a href="./export_pdf.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📄 匯出 PDF 月結單</a>
                         <a href="./yearly_report.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📊 年度報表</a>
                         <a href="./quarterly_report.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📈 季度報表</a>
+                        <a href="./comparison_report.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📊 收支比較報表</a>
                         <?php if ($canWrite): ?>
                             <a href="./add_entry.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn primary">＋ 立傳票（新增記錄）</a>
                         <?php endif; ?>

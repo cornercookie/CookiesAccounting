@@ -269,6 +269,60 @@ td.amt-neutral { color: var(--ink); font-weight: 700; }
     }
 }
 
+/* 收支比較報表樣式 */
+.comparison-table {
+    margin: var(--space-4) 0;
+    width: 100%;
+    border-collapse: collapse;
+}
+.comparison-table th,
+.comparison-table td {
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    text-align: left;
+}
+.comparison-table th {
+    background: var(--paper-3);
+    font-weight: 700;
+    font-size: 0.875rem;
+}
+.comparison-table td.num {
+    text-align: right;
+    font-family: var(--font-mono);
+}
+.comparison-table tfoot tr.comparison-total-row {
+    background: var(--paper-2);
+    font-weight: 700;
+    border-top: 2px solid var(--ink);
+}
+.comparison-table tfoot tr.comparison-total-row td {
+    border-top: 2px solid var(--ink);
+}
+.comparison-chart {
+    margin: var(--space-4) 0;
+    width: 100%;
+    max-width: 700px;
+}
+.comparison-chart svg {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+.comparison-chart h3 {
+    margin: 0 0 var(--space-3) 0;
+    font-size: var(--text-lg);
+}
+
+/* 收支比較報表列印樣式 */
+@media print {
+    .comparison-table, .comparison-chart { page-break-inside: avoid; }
+    .comparison-table tfoot tr.comparison-total-row td {
+        background: var(--paper-2) !important;
+        border-top: 2px solid #000 !important;
+        font-weight: 700;
+    }
+}
+
 /* 匯出 PDF 月結單頁面樣式（TCPDF 載入失敗時的列印優化 HTML 頁面）*/
 .pdf-report {
     max-width: 800px;

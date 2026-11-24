@@ -381,6 +381,7 @@ try {
                                                 <a href="./ledger.php?ledger_id=<?php echo h((string) $ls['id']); ?>" class="btn sm">進入</a>
                                                 <a href="./yearly_report.php?ledger_id=<?php echo h((string) $ls['id']); ?>" class="btn sm secondary">年度報表</a>
                                                 <a href="./quarterly_report.php?ledger_id=<?php echo h((string) $ls['id']); ?>" class="btn sm secondary">季度報表</a>
+                                                <a href="./comparison_report.php?ledger_id=<?php echo h((string) $ls['id']); ?>" class="btn sm secondary">收支比較報表</a>
                                             </div>
                                         </td>
                                     </tr>

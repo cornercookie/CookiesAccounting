@@ -298,6 +298,29 @@ SQL);
         $pdo->exec("ALTER TABLE entries ADD COLUMN recurring_source_id INTEGER");
     }
 
+    // [#20] 記錄確認/認領機制：entries 補確認狀態欄位與確認者/確認時間
+    $hasAckStatus = $hasAckUser = $hasAckAt = false;
+    foreach ($entriesCols as $col) {
+        $name = $col['name'] ?? '';
+        if ($name === 'ack_status') {
+            $hasAckStatus = true;
+        } elseif ($name === 'ack_user_id') {
+            $hasAckUser = true;
+        } elseif ($name === 'ack_at') {
+            $hasAckAt = true;
+        }
+    }
+    if (!$hasAckStatus) {
+        $pdo->exec("ALTER TABLE entries ADD COLUMN ack_status TEXT NOT NULL DEFAULT 'pending' CHECK (ack_status IN ('pending','confirmed','disputed'))");
+    }
+    if (!$hasAckUser) {
+        $pdo->exec("ALTER TABLE entries ADD COLUMN ack_user_id INTEGER");
+    }
+    if (!$hasAckAt) {
+        $pdo->exec("ALTER TABLE entries ADD COLUMN ack_at TEXT");
+    }
+    $pdo->exec("CREATE INDEX IF NOT EXISTS idx_entries_ack_status ON entries(ack_status)");
+
     // 舊版資料庫 migration：ledgers 補 monthly_budget_cents 欄位（每月預算，整數分）
     $hasBudget = false;
     foreach ($cols as $col) {

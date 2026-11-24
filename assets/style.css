@@ -25,6 +25,10 @@
   --amber:      #8a6d1a;
   --amber-tint: #f3ead0;
   --focus:      #1f4e79;
+  --success-bg:    #eaf1e6;
+  --success-text:  #1d4a24;
+  --danger-bg:     #f6e3df;
+  --danger-text:   #7a241a;
   --radius:     3px;
   --shadow:     0 1px 2px rgba(35, 39, 43, 0.12), 0 4px 14px rgba(35, 39, 43, 0.07);
 }
@@ -371,6 +375,12 @@ td.amt-neutral { color: var(--ink); font-weight: 700; }
 .vno.in  { background: var(--red); }
 .vno.out { background: var(--blue); }
 .vno.plain { background: var(--ink); }
+
+/* 確認狀態 chips（[#20] 記錄確認/認領機制） */
+.ack-chip { display: inline-block; font-family: var(--font-mono); font-weight: 700; font-size: 11px; letter-spacing: 0.05em; border-radius: 2px; padding: 2px 7px; }
+.ack-pending   { background: var(--paper-3); color: var(--ink-2); border: 1px solid var(--line); }
+.ack-confirmed { background: var(--success-bg); color: var(--success-text); }
+.ack-disputed  { background: var(--danger-bg); color: var(--danger-text); }
 
 /* 角色 chips */
 .role-tag { display: inline-block; font-family: var(--font-mono); font-size: 11px; border-radius: 2px; padding: 2px 8px; letter-spacing: 0.08em; border: 1px solid var(--line); color: var(--ink-2); background: var(--paper-3); }
@@ -1087,6 +1097,14 @@ table .receipt-col .meta {
         flex-wrap: wrap;
         gap: var(--space-3);
         margin-top: var(--space-3);
+    }
+}
+
+/* [#20] 確認狀態 chip 手機響應式 */
+@media (max-width: 720px) {
+    .ack-chip {
+        font-size: var(--text-xs);
+        padding: 2px 6px;
     }
 }
 

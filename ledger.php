@@ -392,7 +392,7 @@ if ($page > $totalPages) {
 $offset = ($page - 1) * $perPage;
 
 $stmt = $pdo->prepare("
-    SELECT e.id, e.entry_date, e.type, e.category, e.amount_cents, e.note, e.receipt_path, u.username
+    SELECT e.id, e.entry_date, e.type, e.category, e.amount_cents, e.note, e.receipt_path, e.ack_status, e.ack_user_id, e.ack_at, e.user_id, u.username
     FROM entries e
     INNER JOIN users u ON u.id = e.user_id
     $where
@@ -898,6 +898,7 @@ if (!empty($_SESSION['voice_played'])) {
                                     <th class="num">金額</th>
                                     <th class="receipt-col hide-m">收據</th>
                                     <th class="hide-m">備註</th>
+                                    <th class="ctr">確認狀態</th>
                                     <th class="ctr">操作</th>
                                 </tr>
                             </thead>
@@ -920,18 +921,51 @@ if (!empty($_SESSION['voice_played'])) {
                                         </td>
                                         <td class="hide-m"><?php echo h($entry['note']); ?></td>
                                         <td class="ctr">
-                                            <?php if ($canWrite): ?>
-                                                <div class="ctr-actions">
-                                                    <a href="./edit_entry.php?ledger_id=<?php echo h((string) $ledgerId); ?>&id=<?php echo h((string) $entry['id']); ?>" class="btn secondary sm">編輯</a>
-                                                    <form method="POST" action="./delete_entry.php" onsubmit="return confirm('確定要作廢這筆記錄嗎？');">
-                                                        <input type="hidden" name="id" value="<?php echo h((string) $entry['id']); ?>">
-                                                        <input type="hidden" name="ledger_id" value="<?php echo h((string) $ledgerId); ?>">
-                                                        <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
-                                                        <button type="submit" class="btn danger sm">作廢</button>
-                                                    </form>
-                                                </div>
+                                            <?php
+                                            $ackStatus = $entry['ack_status'] ?? 'pending';
+                                            $ackClass = match ($ackStatus) {
+                                                'confirmed' => 'ack-confirmed',
+                                                'disputed'  => 'ack-disputed',
+                                                default     => 'ack-pending',
+                                            };
+                                            $ackLabel = match ($ackStatus) {
+                                                'confirmed' => '已確認',
+                                                'disputed'  => '有爭議',
+                                                default     => '待確認',
+                                            };
+                                            ?>
+                                            <span class="ack-chip <?php echo h($ackClass); ?>"><?php echo h($ackLabel); ?></span>
+                                        </td>
+                                        <td class="ctr">
+                                            <?php
+                                            $isEntryCreator = ((int) $entry['user_id'] === $userId);
+                                            $isLedgerOwner  = ($accessRole === 'owner');
+                                            $canAck = $isEntryCreator || $isLedgerOwner;
+                                            ?>
+                                            <?php if ($canAck): ?>
+                                            <div class="ctr-actions">
+                                                <form method="POST" action="./entry_ack.php" style="display:inline;" onsubmit="return confirm('確定要確認這筆記錄是您花的嗎？');">
+                                                    <input type="hidden" name="entry_id" value="<?php echo h((string) $entry['id']); ?>">
+                                                    <input type="hidden" name="action" value="confirm">
+                                                    <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
+                                                    <button type="submit" class="btn secondary sm">確認</button>
+                                                </form>
+                                                <form method="POST" action="./entry_ack.php" style="display:inline;" onsubmit="return confirm('確定要標記這筆記錄為有爭議嗎？');">
+                                                    <input type="hidden" name="entry_id" value="<?php echo h((string) $entry['id']); ?>">
+                                                    <input type="hidden" name="action" value="dispute">
+                                                    <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
+                                                    <button type="submit" class="btn danger sm">爭議</button>
+                                                </form>
+                                                <a href="./edit_entry.php?ledger_id=<?php echo h((string) $ledgerId); ?>&id=<?php echo h((string) $entry['id']); ?>" class="btn secondary sm">編輯</a>
+                                                <form method="POST" action="./delete_entry.php" onsubmit="return confirm('確定要作廢這筆記錄嗎？');" style="display:inline;">
+                                                    <input type="hidden" name="id" value="<?php echo h((string) $entry['id']); ?>">
+                                                    <input type="hidden" name="ledger_id" value="<?php echo h((string) $ledgerId); ?>">
+                                                    <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
+                                                    <button type="submit" class="btn danger sm">作廢</button>
+                                                </form>
+                                            </div>
                                             <?php else: ?>
-                                                <span class="meta">—</span>
+                                            <span class="meta">—</span>
                                             <?php endif; ?>
                                         </td>
                                     </tr>

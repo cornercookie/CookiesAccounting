@@ -1282,4 +1282,140 @@ table .receipt-col .meta {
   }
 }
 
+/* ============================================
+   單筆傳票列印樣式
+   ============================================ */
+
+/* 列印傳票頁面容器 */
+.voucher-print {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: var(--space-5);
+    background: #fff;
+    font-family: var(--font-body);
+}
+
+.voucher-header {
+    text-align: center;
+    margin-bottom: var(--space-6);
+    padding-bottom: var(--space-4);
+    border-bottom: 2px solid var(--ink);
+}
+
+.voucher-header h1 {
+    font-family: var(--font-display);
+    font-size: var(--text-2xl);
+    margin: 0 0 var(--space-2);
+    color: var(--ink);
+}
+
+.voucher-meta {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--ink-2);
+    margin: 0;
+}
+
+.voucher-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: var(--space-6);
+    font-size: var(--text-sm);
+}
+
+.voucher-table th.voucher-label {
+    width: 140px;
+    padding: var(--space-2) var(--space-3);
+    text-align: left;
+    font-weight: 700;
+    color: var(--ink-2);
+    border: 1px solid var(--line);
+    background: var(--paper-3);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    letter-spacing: 0.08em;
+}
+
+.voucher-table td.voucher-value {
+    padding: var(--space-2) var(--space-3);
+    text-align: left;
+    border: 1px solid var(--line);
+    color: var(--ink);
+}
+
+.voucher-table td.voucher-value.amount {
+    font-family: var(--font-mono);
+    font-size: var(--text-lg);
+    font-weight: 700;
+    color: var(--ink);
+}
+
+.voucher-actions {
+    display: flex;
+    gap: var(--space-3);
+    justify-content: center;
+    flex-wrap: wrap;
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--line);
+}
+
+.voucher-actions .btn {
+    min-width: 140px;
+}
+
+/* 列印時隱藏操作按鈕 */
+@media print {
+    .voucher-actions {
+        display: none !important;
+    }
+    .voucher-print {
+        max-width: 100%;
+        margin: 0;
+        padding: 0;
+        background: #fff;
+    }
+    .voucher-header {
+        border-bottom: 1px solid #000;
+    }
+    .voucher-table th,
+    .voucher-table td {
+        border-color: #000;
+    }
+    body {
+        background: #fff;
+        color: #000;
+    }
+}
+
+/* 手機版調整 */
+@media (max-width: 720px) {
+    .voucher-print {
+        padding: var(--space-3);
+    }
+    .voucher-header h1 {
+        font-size: var(--text-xl);
+    }
+    .voucher-table {
+        font-size: var(--text-xs);
+    }
+    .voucher-table th.voucher-label {
+        width: 100px;
+        padding: var(--space-1) var(--space-2);
+    }
+    .voucher-table td.voucher-value {
+        padding: var(--space-1) var(--space-2);
+    }
+    .voucher-table td.voucher-value.amount {
+        font-size: var(--text-base);
+    }
+    .voucher-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .voucher-actions .btn {
+        width: 100%;
+        min-width: auto;
+    }
+}
+
 

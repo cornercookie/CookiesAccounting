@@ -672,3 +672,126 @@ function renderPdfExportPage(array $user, string $pageTitle, string $ledgerName,
 </html>
     <?php
 }
+
+/**
+ * 解析年月參數 (YYYY-MM)，回傳該月起迄日期。
+ *
+ * @param string $ymRaw 年月字串（YYYY-MM 格式）
+ * @return array [$startDate, $endDate, $errorMessage] 空字串表示無誤
+ */
+function parseYm(string $ymRaw): array
+{
+    // 年份範圍常數：往前 50 年、往後 10 年（使用 defined() 避免重複定義 Notice）
+    if (!defined('YM_MIN_YEAR')) {
+        define('YM_MIN_YEAR', (int)date('Y') - 50);
+    }
+    if (!defined('YM_MAX_YEAR')) {
+        define('YM_MAX_YEAR', (int)date('Y') + 10);
+    }
+
+    if (!preg_match('/^(\d{4})-(\d{2})$/', $ymRaw, $m)) {
+        return ['', '', '年月格式錯誤，應為 YYYY-MM'];
+    }
+    $y = (int)$m[1];
+    $mo = (int)$m[2];
+    if ($mo < 1 || $mo > 12 || $y < YM_MIN_YEAR || $y > YM_MAX_YEAR) {
+        return ['', '', '年月數值超出合理範圍'];
+    }
+    $tz = new DateTimeZone('Asia/Taipei');
+    $start = new DateTimeImmutable("{$y}-{$mo}-01", $tz);
+    $end = $start->modify('last day of this month')->setTime(23, 59, 59);
+    return [$start->format('Y-m-d'), $end->format('Y-m-d'), ''];
+}
+
+/**
+ * 檔名安全化：移除控制字元、路徑遍歷字元，僅保留 Unicode 字母、數字、空格、底線、連字號。
+ *
+ * @param string $name 原始檔名
+ * @return string 安全化後檔名（限制 100 字）
+ */
+function sanitizeFilename(string $name): string
+{
+    // 先移除控制字元（含 \r\n 防標頭注入）
+    $name = preg_replace('/[\x00-\x1F\x7F]/', '', $name);
+    // 再 Unicode 過濾：保留字母、數字、空格、底線、連字號
+    $name = preg_replace('/[^\p{L}\p{N} _-]/u', '', $name);
+    return mb_substr($name, 0, 100, 'UTF-8');
+}
+
+/**
+ * 匯出專用查詢：回傳已 execute() 的 PDOStatement 供串流 fetch。
+ * 不含彙總，供 CSV/JSON 共用。
+ *
+ * @param PDO $pdo
+ * @param int $userId
+ * @param int $ledgerId
+ * @param string $startDate
+ * @param string $endDate
+ * @return PDOStatement
+ * @throws Throwable
+ */
+function fetchEntriesForExport(PDO $pdo, int $userId, int $ledgerId, string $startDate, string $endDate): \PDOStatement
+{
+    $stmt = $pdo->prepare('
+        SELECT e.entry_date, e.type, e.amount_cents, e.category, e.note, u.username
+        FROM entries e
+        INNER JOIN users u ON u.id = e.user_id
+        INNER JOIN ledger_access la ON la.ledger_id = e.ledger_id AND la.user_id = :user_id
+        WHERE e.ledger_id = :ledger_id
+          AND e.deleted = 0
+          AND e.entry_date BETWEEN :startDate AND :endDate
+        ORDER BY e.entry_date DESC, e.id DESC
+    ');
+    $stmt->execute([
+        ':user_id'   => $userId,
+        ':ledger_id' => $ledgerId,
+        ':startDate' => $startDate,
+        ':endDate'   => $endDate,
+    ]);
+    return $stmt;
+}
+
+/**
+ * 單筆傳票查詢：回傳記錄陣列或 false。
+ *
+ * @param PDO $pdo
+ * @param int $userId
+ * @param int $ledgerId
+ * @param int $entryId
+ * @return array|false
+ */
+function getEntryForVoucher(PDO $pdo, int $userId, int $ledgerId, int $entryId): array|false
+{
+    $stmt = $pdo->prepare('
+        SELECT e.id, e.entry_date, e.type, e.amount_cents, e.category, e.note, u.username, l.name AS ledger_name
+        FROM entries e
+        INNER JOIN users u ON u.id = e.user_id
+        INNER JOIN ledgers l ON l.id = e.ledger_id
+        INNER JOIN ledger_access la ON la.ledger_id = e.ledger_id AND la.user_id = :user_id
+        WHERE e.id = :entry_id
+          AND e.ledger_id = :ledger_id
+          AND e.deleted = 0
+        LIMIT 1
+    ');
+    $stmt->execute([
+        ':user_id'   => $userId,
+        ':ledger_id' => $ledgerId,
+        ':entry_id'  => $entryId,
+    ]);
+    return $stmt->fetch() ?: false;
+}
+
+/**
+ * 組裝雙重 Content-Disposition 標頭值（RFC 5987 filename* + 兼容性 filename）。
+ *
+ * @param string $filename 原始檔名
+ * @return string 標頭值，如 'attachment; filename="abc.csv"; filename*=UTF-8''abc.csv'
+ */
+function buildContentDisposition(string $filename): string
+{
+    // ASCII 安全化：非字母數字底線連字號點號替換為底線
+    $asciiName = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $filename);
+    // RFC 5987 編碼
+    $encodedName = rawurlencode($filename);
+    return 'attachment; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . $encodedName;
+}

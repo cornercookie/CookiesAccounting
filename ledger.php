@@ -572,8 +572,9 @@ if (!empty($_SESSION['voice_played'])) {
                         <h1><?php echo h($ledger['name']); ?></h1>
                         <p class="sub">您的身份：<span class="role-tag <?php echo h($accessRole); ?>"><?php echo h($accessRole); ?></span>　·　檢視：<strong><?php echo h($ymLabel); ?></strong>　·　<a href="./ledgers.php">← 返回帳本列表</a></p>
                     </div>
-                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                        <a href="./export_csv.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📥 匯出明細 CSV</a>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                        <a href="./export_csv.php?ledger_id=<?php echo h((string) $ledgerId); ?>&format=csv&ym=<?php echo h($ym); ?>" class="btn">📥 匯出明細 CSV</a>
+                        <a href="./export_csv.php?ledger_id=<?php echo h((string) $ledgerId); ?>&format=json&ym=<?php echo h($ym); ?>" class="btn">📋 匯出 JSON</a>
                         <?php if ($canWrite): ?>
                             <a href="./import_csv.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📤 匯入 CSV 明細</a>
                         <?php endif; ?>
@@ -585,6 +586,46 @@ if (!empty($_SESSION['voice_played'])) {
                             <a href="./add_entry.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn primary">＋ 立傳票（新增記錄）</a>
                         <?php endif; ?>
                     </div>
+                    
+                    <!-- 匯出年月選擇器 -->
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: center;">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 0.875rem;">
+                            <span>匯出月份：</span>
+                            <select name="export_ym" id="exportYmSelect" class="select" style="width: auto; min-width: 140px;" onchange="updateExportLinks()">
+                                <?php
+                                // 產生最近 24 個月的選項
+                                $dt = new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei'));
+                                for ($i = 0; $i < 24; $i++) {
+                                    $m = $dt->modify("-$i month");
+                                    $value = $m->format('Y-m');
+                                    $label = $m->format('Y 年 n 月');
+                                    $selected = ($value === $ym) ? ' selected' : '';
+                                    echo "<option value=\"$value\"$selected>$label</option>";
+                                }
+                                ?>
+                            </select>
+                        </label>
+                        <span class="meta" id="exportYmHint" style="font-size: 0.75rem;">CSV/JSON 匯出將使用此月份</span>
+                    </div>
+                    
+                    <script>
+                    function updateExportLinks() {
+                        const ym = document.getElementById('exportYmSelect').value;
+                        // 更新 CSV/JSON 匯出連結的 ym 參數
+                        const csvLink = document.querySelector('a[href*="export_csv.php"][href*="format=csv"]');
+                        const jsonLink = document.querySelector('a[href*="export_csv.php"][href*="format=json"]');
+                        if (csvLink) {
+                            const url = new URL(csvLink.href, window.location.origin);
+                            url.searchParams.set('ym', ym);
+                            csvLink.href = url.pathname + url.search;
+                        }
+                        if (jsonLink) {
+                            const url = new URL(jsonLink.href, window.location.origin);
+                            url.searchParams.set('ym', ym);
+                            jsonLink.href = url.pathname + url.search;
+                        }
+                    }
+                    </script>
                 </div>
 
                 <?php if ($success): ?>
@@ -1036,6 +1077,9 @@ if (!empty($_SESSION['voice_played'])) {
                                             <?php else: ?>
                                             <span class="meta">—</span>
                                             <?php endif; ?>
+                                            
+                                            <!-- 列印傳票連結（所有角色可見，唯讀查詢） -->
+                                            <a href="./export_pdf.php?ledger_id=<?php echo h((string) $ledgerId); ?>&entry=<?php echo h((string) $entry['id']); ?>" class="btn secondary sm" title="列印傳票">🖨 列印傳票</a>
                                         </td>
                                     </tr>
                                     <!-- 留言展開區塊 -->

@@ -16,7 +16,7 @@ if ($ledgerId === false || $ledgerId === null) {
     redirect('./ledgers.php?error=1');
 }
 
-// 驗證存取權限 + owner 角色（含 archived 檢查，參考 ledger.php）
+// 驗證存取權限：owner/member/viewer 皆可檢視（含 archived 檢查）
 $stmt = $pdo->prepare('
     SELECT l.name, la.role
     FROM ledgers l
@@ -26,10 +26,16 @@ $stmt = $pdo->prepare('
 ');
 $stmt->execute([':ledger_id' => $ledgerId, ':user_id' => $userId]);
 $ledger = $stmt->fetch();
-if ($ledger === false || $ledger['role'] !== 'owner') {
-    redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('僅帳本擁有者可管理類別預算。'));
+if ($ledger === false) {
+    redirect('./ledgers.php?error=1');
 }
-$accessRole = $ledger['role'];
+$accessRole = $ledger['role']; // 'owner' | 'member' | 'viewer'
+$isOwner = ($accessRole === 'owner');
+
+// 寫入操作（POST）僅允許 owner
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && !$isOwner) {
+    redirect('./category_budget.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('僅帳本擁有者可管理類別預算。'));
+}
 
 // 審計日誌：檢視類別預算頁面（GET）
 logAudit('category_budget_view', 'ledger_id=' . $ledgerId . ' user_id=' . $userId);
@@ -200,7 +206,8 @@ if ($editId !== false && $editId !== null) {
                     <p class="alert error" role="alert"><?php echo h($_GET['msg'] ?? '操作失敗。'); ?></p>
                 <?php endif; ?>
 
-                <!-- 新增/編輯表單 -->
+                <!-- 新增/編輯表單：僅 owner 顯示 -->
+                <?php if ($isOwner): ?>
                 <div class="recurring-card">
                     <h3><?php echo $editBudget ? '編輯類別預算' : '新增類別預算'; ?></h3>
                     <form method="POST" action="./category_budget.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="form">
@@ -239,6 +246,7 @@ if ($editId !== false && $editId !== null) {
                         <?php endif; ?>
                     </form>
                 </div>
+                <?php endif; ?>
 
                 <!-- 現有類別預算列表 -->
                 <?php if ($budgets): ?>
@@ -251,7 +259,9 @@ if ($editId !== false && $editId !== null) {
                                     <th>類別</th>
                                     <th class="num">每月預算</th>
                                     <th class="ctr">狀態</th>
+                                    <?php if ($isOwner): ?>
                                     <th class="ctr">操作</th>
+                                    <?php endif; ?>
                                 </tr>
                             </thead>
                             <tbody>
@@ -260,6 +270,7 @@ if ($editId !== false && $editId !== null) {
                                     <td><?php echo h($b['category']); ?></td>
                                     <td class="num mono"><?php echo h(formatCents((int) $b['monthly_budget_cents'])); ?> 元</td>
                                     <td class="ctr"><span class="budget-chip ok">啟用中</span></td>
+                                    <?php if ($isOwner): ?>
                                     <td class="ctr">
                                         <div class="ctr-actions">
                                             <a href="./category_budget.php?ledger_id=<?php echo h((string) $ledgerId); ?>&edit_id=<?php echo h((string) $b['id']); ?>" class="btn secondary sm">編輯</a>
@@ -271,6 +282,7 @@ if ($editId !== false && $editId !== null) {
                                             </form>
                                         </div>
                                     </td>
+                                    <?php endif; ?>
                                 </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -278,7 +290,13 @@ if ($editId !== false && $editId !== null) {
                     </div>
                 </div>
                 <?php else: ?>
-                <p class="empty">尚無類別預算。請上方新增第一筆。</p>
+                <p class="empty">
+                    <?php if ($isOwner): ?>
+                        尚無類別預算。請上方新增第一筆。
+                    <?php else: ?>
+                        尚無類別預算。
+                    <?php endif; ?>
+                </p>
                 <?php endif; ?>
             </main>
         </div>

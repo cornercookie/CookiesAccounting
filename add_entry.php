@@ -1,5 +1,5 @@
 <?php
-// 全家人記帳系統 — 新增記錄（Task 2）：針對特定帳本新增一筆收支記錄
+// 全家人記帳系統 — 新增記錄（Task 2 / #28 合併 multi_currency.php）：針對特定帳本新增一筆收支記錄
 declare(strict_types=1);
 
 require_once __DIR__ . '/functions.php';
@@ -43,15 +43,41 @@ $memberStmt = $pdo->prepare('SELECT u.username, la.role FROM ledger_access la IN
 $memberStmt->execute([':ledger_id' => $ledgerId]);
 $members = $memberStmt->fetchAll();
 
-$amount    = '';
-$entryDate = (new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei')))->format('Y-m-d');
+// GET 參數處理：預選幣別、預填金額/匯率/日期/類型（T-01 / Security S-01, S-02）
+$initialCurrency = 'TWD';
+if (isset($_GET['currency']) && isSupportedCurrency($_GET['currency'])) {
+    $initialCurrency = $_GET['currency'];
+}
+
+// 表單預填變數（GET 參數經 h() 轉義後輸出，所有模式皆可預填）
+$prefillAmount = '';
+$prefillRate = '';
+$prefillDate = '';
+$prefillType = '';
+
+$prefillAmount = isset($_GET['amount']) ? h($_GET['amount']) : '';
+$prefillRate = isset($_GET['rate']) ? h($_GET['rate']) : (isset($_GET['exchange_rate']) ? h($_GET['exchange_rate']) : '');
+$prefillDateRaw = isset($_GET['entry_date']) ? $_GET['entry_date'] : '';
+$prefillTypeRaw = isset($_GET['type']) ? $_GET['type'] : '';
+
+// 入口參數驗證（後端契約）：非法日期、非法類型不予預填，落回預設值
+if ($prefillDateRaw !== '' && !isValidDate($prefillDateRaw)) {
+    $prefillDateRaw = '';
+}
+$prefillDate = $prefillDateRaw !== '' ? h($prefillDateRaw) : '';
+if (!in_array($prefillTypeRaw, ['income', 'expense', 'transfer'], true)) {
+    $prefillTypeRaw = '';
+}
+$prefillType = $prefillTypeRaw !== '' ? h($prefillTypeRaw) : '';
+
 $todayDate = (new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei')))->format('Y-m-d');
+$entryDate = $prefillDate ?: $todayDate;
 $category  = '';
 $note      = '';
-$type      = 'expense';
-$currency  = 'TWD';
-$exchangeRate = '1.0000';
-$originalAmount = '';
+$type      = $prefillType ?: 'expense';
+$currency  = $initialCurrency;
+$exchangeRate = ($currency === 'TWD') ? '1.0000' : ($prefillRate ?: '1.0000');
+$amount    = $prefillAmount;
 $error     = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -87,17 +113,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!in_array($type, ['income', 'expense', 'transfer'], true)) {
             $error = '類別必須為收入、支出或轉帳';
         } else {
-            // 匯率驗證與換算
+            // 匯率驗證與換算（S-01：非 TWD 時驗證匯率合理性）
             $rateBasisPoints = null;
             if ($currency === 'TWD') {
                 $rateBasisPoints = 10000; // 1.0000
                 $exchangeRate = '1.0000';
             } else {
-                $rateCents = parseAmountCents($exchangeRate, 8);
-                if ($rateCents === false || !isValidExchangeRateBasisPoints($rateCents)) {
+                $rateBasisPoints = parseExchangeRateBasisPoints($exchangeRate);
+                if ($rateBasisPoints === false || !isValidExchangeRateBasisPoints($rateBasisPoints)) {
                     $error = '匯率格式不正確或超出範圍（0.0001 ~ 10000）。';
-                } else {
-                    $rateBasisPoints = $rateCents;
                 }
             }
 
@@ -109,56 +133,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            if (!$error) {
-            // 處理收據上傳
-            $receiptPath = '';
-            $receiptUploadFailed = false;
-            if (!empty($_FILES['receipt']['name'])) {
-                $receiptUpload = handleReceiptUpload();
-                if ($receiptUpload !== false) {
-                    $receiptPath = $receiptUpload;
-                } else {
-                    // 上傳失敗：回饋使用者，不靜默繼續；記錄不寫入，保留使用者輸入以便重試
-                    $receiptUploadFailed = true;
-                    $error = '收據上傳失敗：僅允許 JPEG / PNG / WebP，且檔案大小不得超過 5MB。';
-                }
+            // S-02：非 TWD 時 original_amount_cents 不得為 0
+            if (!$error && $currency !== 'TWD' && $foreignCents === 0) {
+                $error = '原幣金額不得為零。';
             }
 
-            if (!$receiptUploadFailed) {
-                $stmt = $pdo->prepare('
-                INSERT INTO entries
-                    (ledger_id, user_id, amount_cents, type, category, entry_date, note, receipt_path, deleted,
-                     currency, exchange_rate, original_amount_cents)
-                VALUES
-                    (:ledger_id, :user_id, :amount_cents, :type, :category, :entry_date, :note, :receipt_path, 0,
-                     :currency, :exchange_rate, :original_amount_cents)
-            ');
-                $stmt->execute([
-                    ':ledger_id'   => $ledgerId,
-                    ':user_id'     => $userId,
-                    ':amount_cents' => $cents,
-                    ':type'        => $type,
-                    ':category'    => $category,
-                    ':entry_date'  => $entryDate,
-                    ':note'        => $note,
-                    ':receipt_path' => $receiptPath,
-                    ':currency'    => $currency,
-                    ':exchange_rate' => $rateBasisPoints,
-                    ':original_amount_cents' => $foreignCents,
-                ]);
-                $newId = (int) $pdo->lastInsertId();
-                logAudit('entry_create', json_encode([
-                    'entry_id' => $newId,
-                    'ledger_id' => $ledgerId,
-                    'type' => $type,
-                    'amount_cents' => $cents,
-                    'currency' => $currency,
-                    'exchange_rate' => $rateBasisPoints,
-                    'original_amount_cents' => $foreignCents,
-                ], JSON_UNESCAPED_UNICODE));
-                $_SESSION['voice_played'] = 1;
-                $_SESSION['voice_text'] = ($type === 'income' ? '收入' : ($type === 'expense' ? '支出' : '轉帳')) . ' ' . formatCents($cents) . ' 元已儲存';
-                redirect('./ledger.php?ledger_id=' . $ledgerId . '&success=1&voucher=' . $newId . '&vtype=' . $type);
+            if (!$error) {
+                // 處理收據上傳
+                $receiptPath = '';
+                $receiptUploadFailed = false;
+                if (!empty($_FILES['receipt']['name'])) {
+                    $receiptUpload = handleReceiptUpload();
+                    if ($receiptUpload !== false) {
+                        $receiptPath = $receiptUpload;
+                    } else {
+                        // 上傳失敗：回饋使用者，不靜默繼續；記錄不寫入，保留使用者輸入以便重試
+                        $receiptUploadFailed = true;
+                        $error = '收據上傳失敗：僅允許 JPEG / PNG / WebP，且檔案大小不得超過 5MB。';
+                    }
+                }
+
+                if (!$receiptUploadFailed) {
+                    // 審計日誌與 DB 寫入須使用同一個 original_amount_cents 值（TWD 模式為 0）
+                    $dbOriginalAmountCents = ($currency === 'TWD') ? 0 : $foreignCents;
+                    $stmt = $pdo->prepare('
+                    INSERT INTO entries
+                        (ledger_id, user_id, amount_cents, type, category, entry_date, note, receipt_path, deleted,
+                         currency, exchange_rate, original_amount_cents)
+                    VALUES
+                        (:ledger_id, :user_id, :amount_cents, :type, :category, :entry_date, :note, :receipt_path, 0,
+                         :currency, :exchange_rate, :original_amount_cents)
+                ');
+                    $stmt->execute([
+                        ':ledger_id'   => $ledgerId,
+                        ':user_id'     => $userId,
+                        ':amount_cents' => $cents,
+                        ':type'        => $type,
+                        ':category'    => $category,
+                        ':entry_date'  => $entryDate,
+                        ':note'        => $note,
+                        ':receipt_path' => $receiptPath,
+                        ':currency'    => $currency,
+                        ':exchange_rate' => $rateBasisPoints,
+                        ':original_amount_cents' => $dbOriginalAmountCents,
+                    ]);
+                    $newId = (int) $pdo->lastInsertId();
+                    logAudit('entry_create', json_encode([
+                        'entry_id' => $newId,
+                        'ledger_id' => $ledgerId,
+                        'type' => $type,
+                        'amount_cents' => $cents,
+                        'currency' => $currency,
+                        'exchange_rate' => $rateBasisPoints,
+                        'original_amount_cents' => $dbOriginalAmountCents,
+                    ], JSON_UNESCAPED_UNICODE));
+                    $_SESSION['voice_played'] = 1;
+                    $_SESSION['voice_text'] = ($type === 'income' ? '收入' : ($type === 'expense' ? '支出' : '轉帳')) . ' ' . formatCents($cents) . ' 元已儲存';
+                    redirect('./ledger.php?ledger_id=' . $ledgerId . '&success=1&voucher=' . $newId . '&vtype=' . $type);
+                }
             }
         }
     }
@@ -184,7 +216,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <p class="nav-h">帳務</p>
                 <a class="nav-item" href="./dashboard.php">儀表板</a>
                 <a class="nav-item active" href="./ledgers.php">帳本列表</a>
-                <a class="nav-item" href="./multi_currency.php">多幣別記帳</a>
                 <a class="nav-item" href="./calendar.php">行事曆檢視</a>
                 <a class="nav-item" href="./search.php">全站搜尋</a>
                 <a class="nav-item" href="./change_password.php">變更密碼</a>
@@ -291,6 +322,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     required
                                     inputmode="decimal"
                                     pattern="\d+(\.\d{1,4})?"
+                                    min="0.0001"
+                                    step="0.0001"
                                     class="input mono"
                                     value="<?php echo h($exchangeRate); ?>"
                                     placeholder="例如 32.5000"
@@ -361,13 +394,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <script src="./assets/ai-parse.js"></script>
     <script>
     // 幣別切換時顯示/隱藏匯率欄位，TWD 固定 1.0000
+    // PHP 決定初始幣別 → select.value 已正確 → JS 讀取並套用（S-05 契約）
     document.addEventListener('DOMContentLoaded', function () {
         const currencySelect = document.getElementById('currency');
         const exchangeRateField = document.getElementById('exchangeRateField');
         const exchangeRateInput = document.getElementById('exchange_rate');
 
-        function toggleExchangeRate() {
-            const currency = currencySelect.value;
+        function toggleExchangeRate(currency) {
             if (currency === 'TWD') {
                 exchangeRateField.style.display = 'none';
                 exchangeRateInput.value = '1.0000';
@@ -378,8 +411,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        currencySelect.addEventListener('change', toggleExchangeRate);
-        toggleExchangeRate(); // 初始化
+        // 初始化：讀取 PHP 渲染的 select.value（已由 $initialCurrency 決定）
+        toggleExchangeRate(currencySelect.value);
+
+        currencySelect.addEventListener('change', function (e) {
+            toggleExchangeRate(e.target.value);
+        });
     });
     </script>
 </body>

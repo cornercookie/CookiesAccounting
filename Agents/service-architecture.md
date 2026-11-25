@@ -82,7 +82,7 @@ graph TB
 | **儀表板** | `dashboard.php` | 受保護頁面 | 登入用戶 | 多帳本本月收支總覽、預算警示、重複記錄提醒 |
 | **帳本列表** | `ledgers.php` | 受保護頁面 | 登入用戶 | 建立帳本、封存/還原、列出可存取帳本 |
 | **帳本詳情** | `ledger.php` | 受保護頁面 | 登入用戶（ledger_access） | 本月彙總、篩選、分頁記錄、預算設定、重複記錄管理 |
-| **新增記錄** | `add_entry.php` | 受保護頁面 | owner/member | 立傳票（收入/支出/轉帳）、收據上傳、AI 解析 |
+| **新增記錄** | `add_entry.php` | 受保護頁面 | owner/member | 立傳票（收入/支出/轉帳）、多幣別模式（`？currency=` 預選幣別、匯率輸入）、收據上傳、AI 解析 |
 | **編輯記錄** | `edit_entry.php` | 受保護頁面 | owner/member | 修改既有記錄 |
 | **作廢記錄** | `delete_entry.php` | 受保護頁面 | owner/member | 軟刪除（`deleted=1`） |
 | **匯入 CSV** | `import_csv.php` | 受保護頁面 | owner/member | 批次匯入收支記錄 |

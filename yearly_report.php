@@ -143,7 +143,7 @@ if ($queryError !== '') {
                 <p class="nav-h">帳務</p>
                 <a class="nav-item" href="./dashboard.php">儀表板</a>
                 <a class="nav-item" href="./ledgers.php">帳本列表</a>
-                <a class="nav-item" href="./multi_currency.php">多幣別記帳</a>
+                <a class="nav-item" href="./add_entry.php?ledger_id=<?php echo h((string) $ledgerId); ?>">新增記錄</a>
                 <a class="nav-item" href="./calendar.php">行事曆檢視</a>
                 <a class="nav-item" href="./search.php">全站搜尋</a>
                 <a class="nav-item" href="./change_password.php">變更密碼</a>

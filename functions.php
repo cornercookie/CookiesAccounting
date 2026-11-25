@@ -233,6 +233,25 @@ function isValidExchangeRateBasisPoints(int $rateBasisPoints): bool
 }
 
 /**
+ * 解析匯率字串為 basis points（萬分位），接受小數點後 1–4 位（不使用 FLOAT）。
+ * 例如 "32.5000" → 325000，"32.5" → 325000，"1.0000" → 10000。
+ * @param string $rate 匯率字串
+ * @return int|false basis points，失敗回傳 false
+ * 【後端必驗】add_entry.php、edit_entry.php 必須呼叫此函數驗證匯率
+ */
+function parseExchangeRateBasisPoints(string $rate): int|false
+{
+    $rate = trim($rate);
+    if ($rate === '' || !preg_match('/^(\d{1,10})(?:\.(\d{1,4}))?$/', $rate, $m)) {
+        return false;
+    }
+    $intPart = (int) $m[1];
+    $fracPart = isset($m[2]) ? str_pad((string) $m[2], 4, '0', STR_PAD_RIGHT) : '0000';
+    $basisPoints = $intPart * 10000 + (int) $fracPart;
+    return $basisPoints;
+}
+
+/**
  * 格式化原幣金額顯示（依幣別決定小數位）
  * @param int $foreignCents 原幣金額（整數分）
  * @param string $currency 幣別代碼
@@ -725,7 +744,7 @@ function renderPdfExportPage(array $user, string $pageTitle, string $ledgerName,
                 <p class="nav-h">帳務</p>
                 <a class="nav-item" href="./dashboard.php">儀表板</a>
                 <a class="nav-item" href="./ledgers.php">帳本列表</a>
-                <a class="nav-item" href="./multi_currency.php">多幣別記帳</a>
+                <a class="nav-item" href="<?php echo !empty($_GET['ledger_id']) ? './add_entry.php?ledger_id=' . h((string) $_GET['ledger_id']) : './ledgers.php'; ?>">新增記錄</a>
                 <a class="nav-item" href="./calendar.php">行事曆檢視</a>
                 <a class="nav-item" href="./change_password.php">變更密碼</a>
                 <?php if ($user['role'] === 'admin'): ?>

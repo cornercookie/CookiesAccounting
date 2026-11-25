@@ -449,6 +449,17 @@ $catStmt = $pdo->prepare('SELECT DISTINCT category FROM entries WHERE ledger_id 
 $catStmt->execute([':ledger_id' => $ledgerId]);
 $categories = $catStmt->fetchAll(PDO::FETCH_COLUMN);
 
+// [#22] 未配對轉帳筆數（僅屬於當前帳本）
+$stmt = $pdo->prepare('
+    SELECT COUNT(*) FROM entries e
+    WHERE e.ledger_id = :ledger_id
+      AND e.deleted = 0
+      AND e.type = 'transfer'
+      AND e.transfer_pair_id IS NULL
+');
+$stmt->execute([':ledger_id' => $ledgerId]);
+$unpairedTransferCount = (int) $stmt->fetchColumn();
+
 // 產生帶篩選的相對連結（沿用既有參數，覆寫指定鍵）
 $filterBase = ['ledger_id' => $ledgerId, 'ym' => $ym];
 if ($entryDate !== null) {
@@ -768,6 +779,17 @@ if (!empty($_SESSION['voice_played'])) {
                     <button type="submit" class="btn primary sm">查帳</button>
                     <a class="btn secondary sm" href="./ledger.php?ledger_id=<?php echo h((string) $ledgerId); ?>">清除</a>
                 </form>
+
+                <!-- [#22] 未配對轉帳提醒 -->
+                <?php if ($unpairedTransferCount > 0): ?>
+                <details class="unpaired-transfers" open>
+                    <summary>⚠ 未配對轉帳 (<span id="unpaired-count"><?php echo (int) $unpairedTransferCount; ?></span> 筆)</summary>
+                    <div class="unpaired-list">
+                        <p class="meta">此帳本有未配對的轉帳記錄，建議前往配對以利對帳。</p>
+                        <a href="./transfer_pair.php" class="btn primary sm">前往配對</a>
+                    </div>
+                </details>
+                <?php endif; ?>
 
                 <?php
                 // === 類別預算查詢（新增）===

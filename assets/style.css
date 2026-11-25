@@ -701,6 +701,50 @@ table .receipt-col .meta {
   .category-chart { max-height: 300px; }
 }
 
+/* ---------- [#22] 未配對轉帳提醒 ---------- */
+.unpaired-transfers {
+  margin: var(--space-6) 0;
+  padding: var(--space-4);
+  background: var(--amber-tint);
+  border: 1px solid var(--amber);
+  border-radius: var(--radius);
+}
+.unpaired-transfers summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--amber);
+  font-size: var(--text-base);
+}
+.unpaired-transfers summary::-webkit-details-marker {
+  display: none;
+}
+.unpaired-transfers summary::before {
+  content: '▸ ';
+  display: inline-block;
+  transition: transform 0.2s;
+}
+.unpaired-transfers[open] summary::before {
+  transform: rotate(90deg);
+}
+.unpaired-list {
+  margin-top: var(--space-3);
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.unpaired-list .meta {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+/* 手機版調整 */
+@media (max-width: 720px) {
+  .unpaired-transfers { margin: var(--space-5) 0; padding: var(--space-3); }
+  .unpaired-list { flex-direction: column; align-items: flex-start; gap: var(--space-2); }
+}
+
 /* ---------- 重複記錄：固定每月開銷 ---------- */
 .recurring-card {
   margin: var(--space-6) 0;

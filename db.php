@@ -279,6 +279,22 @@ SQL);
     CREATE INDEX IF NOT EXISTS idx_entry_comments_deleted ON entry_comments(deleted);
 SQL);
 
+    // 先查詢 entries 表結構，供後續 migration 使用
+    $entriesCols = $pdo->query('PRAGMA table_info(entries)')->fetchAll(PDO::FETCH_ASSOC);
+
+    // [#22] transfer_pair_id 欄位（轉帳配對）
+    $hasTransferPair = false;
+    foreach ($entriesCols as $col) {
+        if (($col['name'] ?? '') === 'transfer_pair_id') {
+            $hasTransferPair = true;
+            break;
+        }
+    }
+    if (!$hasTransferPair) {
+        $pdo->exec("ALTER TABLE entries ADD COLUMN transfer_pair_id INTEGER");
+        $pdo->exec("CREATE INDEX IF NOT EXISTS idx_entries_transfer_pair_id ON entries(transfer_pair_id)");
+    }
+
     // 舊版資料庫 migration：ledgers 補 archived 欄位（封存/還原帳本用）
     $cols = $pdo->query('PRAGMA table_info(ledgers)')->fetchAll(PDO::FETCH_ASSOC);
     $hasArchived = false;
@@ -294,7 +310,6 @@ SQL);
 
     // 舊版資料庫 migration：entries 補 receipt_path 欄位（收據圖片路徑）
     $hasReceipt = false;
-    $entriesCols = $pdo->query('PRAGMA table_info(entries)')->fetchAll(PDO::FETCH_ASSOC);
     foreach ($entriesCols as $col) {
         if (($col['name'] ?? '') === 'receipt_path') {
             $hasReceipt = true;

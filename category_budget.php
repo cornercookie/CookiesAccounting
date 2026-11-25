@@ -31,6 +31,9 @@ if ($ledger === false || $ledger['role'] !== 'owner') {
 }
 $accessRole = $ledger['role'];
 
+// 審計日誌：檢視類別預算頁面（GET）
+logAudit('category_budget_view', 'ledger_id=' . $ledgerId . ' user_id=' . $userId);
+
 // POST 處理：新增/編輯/停用
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     $action = $_POST['action'] ?? '';

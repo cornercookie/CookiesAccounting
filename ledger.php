@@ -564,6 +564,14 @@ if (!empty($_SESSION['voice_played'])) {
                         <li><span class="rail-user"><?php echo h($m['username']); ?></span><span class="role-chip small"><?php echo h($m['role']); ?></span></li>
                     <?php endforeach; ?>
                 </ul>
+                <!-- [#25] 類別預算設定連結：僅 owner 可見 -->
+                <?php if ($accessRole === 'owner'): ?>
+                <div class="rail-link">
+                    <a href="./category_budget.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="rail-link-item">
+                        <?php echo h('類別預算設定'); ?>
+                    </a>
+                </div>
+                <?php endif; ?>
             </div>
             <div class="side-foot">
                 <div class="who"><b><?php echo h($user['username']); ?></b><span class="role-chip"><?php echo h($user['role']); ?></span></div>

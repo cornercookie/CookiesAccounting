@@ -234,9 +234,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
     $entryDate = $today->format('Y-m-d');
     $stmt = $pdo->prepare('
         INSERT INTO entries
-            (ledger_id, user_id, amount_cents, type, category, entry_date, note, receipt_path, deleted, recurring_source_id)
+            (ledger_id, user_id, amount_cents, type, category, entry_date, note, receipt_path, deleted, recurring_source_id,
+             currency, exchange_rate, original_amount_cents)
         VALUES
-            (:ledger_id, :user_id, :amount_cents, :type, :category, :entry_date, :note, '', 0, :recurring_source_id)
+            (:ledger_id, :user_id, :amount_cents, :type, :category, :entry_date, :note, '', 0, :recurring_source_id,
+             'TWD', 10000, :amount_cents)
     ');
     $stmt->execute([
         ':ledger_id'       => $ledgerId,
@@ -393,6 +395,7 @@ $offset = ($page - 1) * $perPage;
 
 $stmt = $pdo->prepare("
     SELECT e.id, e.entry_date, e.type, e.category, e.amount_cents, e.note, e.receipt_path, e.ack_status, e.ack_user_id, e.ack_at, e.user_id, u.username,
+           e.currency, e.exchange_rate, e.original_amount_cents,
            ec.id AS comment_id, ec.comment, ec.created_at AS comment_created_at, cu.username AS comment_user
     FROM entries e
     INNER JOIN users u ON u.id = e.user_id
@@ -429,6 +432,9 @@ foreach ($rows as $row) {
             'ack_at'       => $row['ack_at'],
             'user_id'      => $row['user_id'],
             'username'     => $row['username'],
+            'currency'     => $row['currency'] ?? 'TWD',
+            'exchange_rate' => $row['exchange_rate'] ?? 10000,
+            'original_amount_cents' => $row['original_amount_cents'] ?? 0,
         ];
     }
     // 收集留言
@@ -538,7 +544,8 @@ if (!empty($_SESSION['voice_played'])) {
             <nav class="nav" aria-label="主要導覽">
                 <p class="nav-h">帳務</p>
                 <a class="nav-item" href="./dashboard.php">儀表板</a>
-                <a class="nav-item" href="./ledgers.php">帳本列表</a>
+                <a class="nav-item active" href="./ledgers.php">帳本列表</a>
+                <a class="nav-item" href="./multi_currency.php">多幣別記帳</a>
                 <a class="nav-item" href="./calendar.php">行事曆檢視</a>
                 <a class="nav-item" href="./search.php">全站搜尋</a>
                 <a class="nav-item" href="./change_password.php">變更密碼</a>
@@ -995,7 +1002,10 @@ if (!empty($_SESSION['voice_played'])) {
                                     <th>日期</th>
                                     <th>成員</th>
                                     <th>類別</th>
-                                    <th class="num">金額</th>
+                                    <th class="hide-m">幣別</th>
+                                    <th class="num hide-m">原幣金額</th>
+                                    <th class="num hide-m">匯率</th>
+                                    <th class="num">台幣金額</th>
                                     <th class="receipt-col hide-m">收據</th>
                                     <th class="hide-m">備註</th>
                                     <th class="ctr">確認狀態</th>
@@ -1008,12 +1018,18 @@ if (!empty($_SESSION['voice_played'])) {
                                     $eid = (int) $entry['id'];
                                     $comments = $commentsByEntry[$eid] ?? [];
                                     $commentCount = count($comments);
+                                    $curr = $entry['currency'] ?? 'TWD';
+                                    $origAmt = $entry['original_amount_cents'] ?? 0;
+                                    $rate = $entry['exchange_rate'] ?? 10000;
                                 ?>
                                     <tr>
                                         <td><span class="vno <?php echo $entry['type'] === 'income' ? 'in' : ($entry['type'] === 'expense' ? 'out' : 'plain'); ?>"><?php echo $entry['type'] === 'income' ? '收' : ($entry['type'] === 'expense' ? '支' : '轉'); ?>-<?php echo h(str_pad((string) $entry['id'], 3, '0', STR_PAD_LEFT)); ?></span></td>
                                         <td class="mono"><?php echo h($entry['entry_date']); ?></td>
                                         <td><?php echo h($entry['username']); ?></td>
                                         <td><?php echo h($entry['category']); ?></td>
+                                        <td class="hide-m"><span class="currency-tag"><?php echo h($curr); ?></span></td>
+                                        <td class="num hide-m mono"><?php echo h(formatForeignAmount($origAmt, $curr)); ?></td>
+                                        <td class="num hide-m mono"><?php echo h(formatExchangeRate($rate)); ?></td>
                                         <td class="num <?php echo $entry['type'] === 'income' ? 'amt-in' : ($entry['type'] === 'expense' ? 'amt-out' : 'amt-neutral'); ?>"><?php echo h(($entry['type'] === 'income' ? '+' : ($entry['type'] === 'expense' ? '-' : '')) . formatCents((int) $entry['amount_cents'])); ?></td>
                                         <td class="receipt-col hide-m ctr">
                                             <?php if (!empty($entry['receipt_path'])): ?>

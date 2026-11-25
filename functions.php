@@ -160,16 +160,109 @@ function formatCents(int $cents): string
 /**
  * 將金額字串解析為整數分（不使用 FLOAT）。
  * 接受 '100' 或 '100.50'（至多小數點後兩位），否則回傳 false。
+ * @deprecated 自 v2026-11 起改用 parseAmountCents()，保留此函數以維持向後相容。
  */
 function toCents(string $amount): int|false
 {
+    return parseAmountCents($amount);
+}
+
+/**
+ * 通用金額字串解析為整數分（不使用 FLOAT）。
+ * 接受 '100' 或 '100.50'（至多小數點後兩位），否則回傳 false。
+ * @param string $amount 金額字串（如 '100'、'100.50'）
+ * @param int $maxIntDigits 整數部最大位數（預設 10，JPY 等無小數幣別亦適用）
+ * @return int|false 解析成功回傳整數分，失敗回傳 false
+ * 【後端必驗】add_entry.php、edit_entry.php 必須呼叫此函數驗證原幣金額
+ */
+function parseAmountCents(string $amount, int $maxIntDigits = 10): int|false
+{
     $amount = trim($amount);
-    if ($amount === '' || !preg_match('/^(\d{1,10})(?:\.(\d{1,2}))?$/', $amount, $m)) {
+    if ($amount === '' || !preg_match('/^(\d{1,' . $maxIntDigits . '})(?:\.(\d{1,2}))?$/', $amount, $m)) {
         return false;
     }
     $dollars = (int) $m[1];
     $cents   = isset($m[2]) ? (int) str_pad($m[2], 2, '0', STR_PAD_RIGHT) : 0;
     return $dollars * 100 + $cents;
+}
+
+/**
+ * 支援幣別白名單（本期最小支援集：TWD/USD/JPY/CNY，易擴充）
+ */
+function getSupportedCurrencies(): array
+{
+    return ['TWD', 'USD', 'JPY', 'CNY', 'EUR', 'HKD', 'KRW', 'GBP', 'AUD', 'CAD', 'SGD', 'THB', 'VND', 'IDR', 'MYR', 'PHP'];
+}
+
+/**
+ * 驗證幣別是否支援【後端必驗】
+ */
+function isSupportedCurrency(string $currency): bool
+{
+    return in_array(strtoupper($currency), getSupportedCurrencies(), true);
+}
+
+/**
+ * 依匯率將原幣整數分換算為台幣整數分（四捨五入到分，純整數運算）
+ * @param int $foreignCents 原幣金額（整數分）
+ * @param int $rateBasisPoints 匯率 basis points（萬分位），10000 = 1.0000
+ * @return int 台幣整數分
+ * @throws ValueError 換算結果超出 PHP 整數範圍
+ * 【後端必驗】add_entry.php、edit_entry.php 必須呼叫此函數計算 amount_cents
+ */
+function convertToTwdCents(int $foreignCents, int $rateBasisPoints): int
+{
+    // 台幣整數分 = round(foreignCents * rateBasisPoints / 10000)
+    // 使用整數四捨五入：(foreignCents * rateBasisPoints + 5000) / 10000
+    // 先檢查乘法是否溢位
+    $product = $foreignCents * $rateBasisPoints;
+    if ($product > PHP_INT_MAX || $product < -PHP_INT_MAX) {
+        throw new ValueError('換算結果超出整數範圍：foreignCents=' . $foreignCents . ' rateBasisPoints=' . $rateBasisPoints);
+    }
+    return (int) (($product + 5000) / 10000); // 四捨五入（+5000 相當於 /10000 後的 0.5）
+}
+
+/**
+ * 匯率 basis points 驗證【後端必驗】
+ * @param int $rateBasisPoints 萬分位匯率（1 ~ 100,000,000 對應 0.0001 ~ 10000.0000）
+ * @return bool
+ */
+function isValidExchangeRateBasisPoints(int $rateBasisPoints): bool
+{
+    return $rateBasisPoints >= 1 && $rateBasisPoints <= 100000000;
+}
+
+/**
+ * 格式化原幣金額顯示（依幣別決定小數位）
+ * @param int $foreignCents 原幣金額（整數分）
+ * @param string $currency 幣別代碼
+ * @return string 格式化後字串，**輸出時必須經 h() 轉義**
+ */
+function formatForeignAmount(int $foreignCents, string $currency): string
+{
+    $zeroDecimal = ['JPY', 'KRW', 'VND', 'IDR', 'CLP', 'PYG'];
+    $currency = strtoupper($currency);
+    $negative = $foreignCents < 0;
+    $abs = abs($foreignCents);
+    
+    if (in_array($currency, $zeroDecimal, true)) {
+        return ($negative ? '-' : '') . number_format(intdiv($abs, 100));
+    }
+    $dollars = intdiv($abs, 100);
+    $centsPart = $abs % 100;
+    return ($negative ? '-' : '') . number_format($dollars) . '.' . str_pad((string) $centsPart, 2, '0', STR_PAD_LEFT);
+}
+
+/**
+ * 將 basis points 匯率格式化顯示（如 325000 → "32.5000"）
+ * @param int $rateBasisPoints
+ * @return string **輸出時必須經 h() 轉義**
+ */
+function formatExchangeRate(int $rateBasisPoints): string
+{
+    $intPart = intdiv($rateBasisPoints, 10000);
+    $fracPart = $rateBasisPoints % 10000;
+    return $intPart . '.' . str_pad((string) $fracPart, 4, '0', STR_PAD_LEFT);
 }
 
 /**
@@ -458,7 +551,8 @@ function fetchEntriesWithStats(PDO $pdo, int $userId, int $ledgerId, string $sta
     // 查詢詳細記錄
     try {
         $stmt = $pdo->prepare('
-            SELECT e.entry_date, e.type, e.amount_cents, e.category, e.note, u.username
+            SELECT e.entry_date, e.type, e.amount_cents, e.category, e.note, u.username,
+                   e.currency, e.exchange_rate, e.original_amount_cents
             FROM entries e
             INNER JOIN ledger_access la ON la.ledger_id = e.ledger_id AND la.user_id = :user_id
             INNER JOIN users u ON u.id = e.user_id
@@ -631,6 +725,7 @@ function renderPdfExportPage(array $user, string $pageTitle, string $ledgerName,
                 <p class="nav-h">帳務</p>
                 <a class="nav-item" href="./dashboard.php">儀表板</a>
                 <a class="nav-item" href="./ledgers.php">帳本列表</a>
+                <a class="nav-item" href="./multi_currency.php">多幣別記帳</a>
                 <a class="nav-item" href="./calendar.php">行事曆檢視</a>
                 <a class="nav-item" href="./change_password.php">變更密碼</a>
                 <?php if ($user['role'] === 'admin'): ?>
@@ -733,7 +828,8 @@ function sanitizeFilename(string $name): string
 function fetchEntriesForExport(PDO $pdo, int $userId, int $ledgerId, string $startDate, string $endDate): \PDOStatement
 {
     $stmt = $pdo->prepare('
-        SELECT e.entry_date, e.type, e.amount_cents, e.category, e.note, u.username
+        SELECT e.entry_date, e.type, e.amount_cents, e.category, e.note, u.username,
+               e.currency, e.exchange_rate, e.original_amount_cents
         FROM entries e
         INNER JOIN users u ON u.id = e.user_id
         INNER JOIN ledger_access la ON la.ledger_id = e.ledger_id AND la.user_id = :user_id
@@ -763,7 +859,8 @@ function fetchEntriesForExport(PDO $pdo, int $userId, int $ledgerId, string $sta
 function getEntryForVoucher(PDO $pdo, int $userId, int $ledgerId, int $entryId): array|false
 {
     $stmt = $pdo->prepare('
-        SELECT e.id, e.entry_date, e.type, e.amount_cents, e.category, e.note, u.username, l.name AS ledger_name
+        SELECT e.id, e.entry_date, e.type, e.amount_cents, e.category, e.note, u.username, l.name AS ledger_name,
+               e.currency, e.exchange_rate, e.original_amount_cents
         FROM entries e
         INNER JOIN users u ON u.id = e.user_id
         INNER JOIN ledgers l ON l.id = e.ledger_id

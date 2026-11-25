@@ -282,6 +282,33 @@ SQL);
     // 先查詢 entries 表結構，供後續 migration 使用
     $entriesCols = $pdo->query('PRAGMA table_info(entries)')->fetchAll(PDO::FETCH_ASSOC);
 
+    // [#24] 多幣別支援：currency、exchange_rate、original_amount_cents 欄位
+    // ⚠️ 必須置於 $entriesCols = $pdo->query('PRAGMA table_info(entries)')->fetchAll(...) 之後
+    $hasCurrency = $hasRate = $hasOriginalAmount = false;
+    foreach ($entriesCols as $col) {
+        $name = $col['name'] ?? '';
+        if ($name === 'currency') $hasCurrency = true;
+        elseif ($name === 'exchange_rate') $hasRate = true;
+        elseif ($name === 'original_amount_cents') $hasOriginalAmount = true;
+    }
+    if (!$hasCurrency) {
+        $pdo->exec("ALTER TABLE entries ADD COLUMN currency TEXT NOT NULL DEFAULT 'TWD'");
+    }
+    if (!$hasRate) {
+        $pdo->exec("ALTER TABLE entries ADD COLUMN exchange_rate INTEGER NOT NULL DEFAULT 10000");
+    }
+    if (!$hasOriginalAmount) {
+        $pdo->exec("ALTER TABLE entries ADD COLUMN original_amount_cents INTEGER NOT NULL DEFAULT 0");
+    }
+    // 既有資料回填：ALTER TABLE ADD COLUMN NOT NULL DEFAULT 已自動填入預設值
+    // 僅針對極端情況（currency 為空字串）補值
+    try {
+        $pdo->exec("UPDATE entries SET currency='TWD', exchange_rate=10000, original_amount_cents=amount_cents WHERE currency = ''");
+    } catch (Throwable $e) {
+        logError('multi-currency migration UPDATE failed: ' . $e->getMessage());
+    }
+    // 注意：不建立資料庫 CHECK 約束，幣別與匯率驗證完全在應用層執行
+
     // [#22] transfer_pair_id 欄位（轉帳配對）
     $hasTransferPair = false;
     foreach ($entriesCols as $col) {

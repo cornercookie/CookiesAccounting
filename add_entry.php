@@ -49,6 +49,9 @@ $todayDate = (new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei')))->fo
 $category  = '';
 $note      = '';
 $type      = 'expense';
+$currency  = 'TWD';
+$exchangeRate = '1.0000';
+$originalAmount = '';
 $error     = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -67,9 +70,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $note      = trim($_POST['note'] ?? '');
         $type      = $_POST['type'] ?? '';
+        $currency  = trim($_POST['currency'] ?? 'TWD');
+        $exchangeRate = trim($_POST['exchange_rate'] ?? '1.0000');
 
-        if ($amount === '' || ($cents = toCents($amount)) === false) {
-            $error = '金額格式不正確（請使用整數或至多小數點後兩位，例如 100 或 100.50；不得負數）';
+        // 後端二次驗證【後端必驗】
+        if (!isSupportedCurrency($currency)) {
+            $error = '不支援的幣別。';
+        } elseif ($amount === '' || ($foreignCents = parseAmountCents($amount, 10)) === false) {
+            $error = '原幣金額格式不正確（請使用整數或至多小數點後兩位，例如 100 或 100.50；不得負數）';
         } elseif ($entryDate === '' || !isValidDate($entryDate)) {
             $error = '請選擇有效的記帳日期';
         } elseif ($category === '') {
@@ -79,6 +87,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!in_array($type, ['income', 'expense', 'transfer'], true)) {
             $error = '類別必須為收入、支出或轉帳';
         } else {
+            // 匯率驗證與換算
+            $rateBasisPoints = null;
+            if ($currency === 'TWD') {
+                $rateBasisPoints = 10000; // 1.0000
+                $exchangeRate = '1.0000';
+            } else {
+                $rateCents = parseAmountCents($exchangeRate, 8);
+                if ($rateCents === false || !isValidExchangeRateBasisPoints($rateCents)) {
+                    $error = '匯率格式不正確或超出範圍（0.0001 ~ 10000）。';
+                } else {
+                    $rateBasisPoints = $rateCents;
+                }
+            }
+
+            if (!$error) {
+                try {
+                    $cents = convertToTwdCents($foreignCents, $rateBasisPoints);
+                } catch (ValueError $e) {
+                    $error = '金額換算超出範圍，請檢查金額與匯率。';
+                }
+            }
+
+            if (!$error) {
             // 處理收據上傳
             $receiptPath = '';
             $receiptUploadFailed = false;
@@ -96,9 +127,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$receiptUploadFailed) {
                 $stmt = $pdo->prepare('
                 INSERT INTO entries
-                    (ledger_id, user_id, amount_cents, type, category, entry_date, note, receipt_path, deleted)
+                    (ledger_id, user_id, amount_cents, type, category, entry_date, note, receipt_path, deleted,
+                     currency, exchange_rate, original_amount_cents)
                 VALUES
-                    (:ledger_id, :user_id, :amount_cents, :type, :category, :entry_date, :note, :receipt_path, 0)
+                    (:ledger_id, :user_id, :amount_cents, :type, :category, :entry_date, :note, :receipt_path, 0,
+                     :currency, :exchange_rate, :original_amount_cents)
             ');
                 $stmt->execute([
                     ':ledger_id'   => $ledgerId,
@@ -109,9 +142,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ':entry_date'  => $entryDate,
                     ':note'        => $note,
                     ':receipt_path' => $receiptPath,
+                    ':currency'    => $currency,
+                    ':exchange_rate' => $rateBasisPoints,
+                    ':original_amount_cents' => $foreignCents,
                 ]);
                 $newId = (int) $pdo->lastInsertId();
-                logAudit('entry_create', 'entry #' . $newId . ' · ledger ' . $ledgerId . ' · ' . $type . ' · ' . formatCents($cents));
+                logAudit('entry_create', json_encode([
+                    'entry_id' => $newId,
+                    'ledger_id' => $ledgerId,
+                    'type' => $type,
+                    'amount_cents' => $cents,
+                    'currency' => $currency,
+                    'exchange_rate' => $rateBasisPoints,
+                    'original_amount_cents' => $foreignCents,
+                ], JSON_UNESCAPED_UNICODE));
                 $_SESSION['voice_played'] = 1;
                 $_SESSION['voice_text'] = ($type === 'income' ? '收入' : ($type === 'expense' ? '支出' : '轉帳')) . ' ' . formatCents($cents) . ' 元已儲存';
                 redirect('./ledger.php?ledger_id=' . $ledgerId . '&success=1&voucher=' . $newId . '&vtype=' . $type);
@@ -140,6 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <p class="nav-h">帳務</p>
                 <a class="nav-item" href="./dashboard.php">儀表板</a>
                 <a class="nav-item active" href="./ledgers.php">帳本列表</a>
+                <a class="nav-item" href="./multi_currency.php">多幣別記帳</a>
                 <a class="nav-item" href="./calendar.php">行事曆檢視</a>
                 <a class="nav-item" href="./search.php">全站搜尋</a>
                 <a class="nav-item" href="./change_password.php">變更密碼</a>
@@ -207,7 +252,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         <div class="form-grid">
                             <div class="field field-full">
-                                <label for="amount" class="label">金額</label>
+                                <label for="amount" class="label">原幣金額</label>
                                 <input
                                     type="text"
                                     name="amount"
@@ -220,6 +265,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     placeholder="例如 100 或 100.50"
                                     style="font-size: var(--text-xl);"
                                     autofocus
+                                >
+                            </div>
+
+                            <div class="field">
+                                <label for="currency" class="label">幣別</label>
+                                <select name="currency" id="currency" class="select">
+                                    <option value="TWD"<?php echo $currency === 'TWD' ? ' selected' : ''; ?>>TWD（台幣）</option>
+                                    <option value="USD"<?php echo $currency === 'USD' ? ' selected' : ''; ?>>USD（美金）</option>
+                                    <option value="JPY"<?php echo $currency === 'JPY' ? ' selected' : ''; ?>>JPY（日圓）</option>
+                                    <option value="CNY"<?php echo $currency === 'CNY' ? ' selected' : ''; ?>>CNY（人民幣）</option>
+                                    <option value="EUR"<?php echo $currency === 'EUR' ? ' selected' : ''; ?>>EUR（歐元）</option>
+                                    <option value="HKD"<?php echo $currency === 'HKD' ? ' selected' : ''; ?>>HKD（港幣）</option>
+                                    <option value="KRW"<?php echo $currency === 'KRW' ? ' selected' : ''; ?>>KRW（韓元）</option>
+                                    <option value="GBP"<?php echo $currency === 'GBP' ? ' selected' : ''; ?>>GBP（英鎊）</option>
+                                </select>
+                            </div>
+
+                            <div class="field" id="exchangeRateField"<?php echo $currency === 'TWD' ? ' style="display:none;"' : ''; ?>>
+                                <label for="exchange_rate" class="label">匯率（1 原幣 = 台幣）</label>
+                                <input
+                                    type="text"
+                                    name="exchange_rate"
+                                    id="exchange_rate"
+                                    required
+                                    inputmode="decimal"
+                                    pattern="\d+(\.\d{1,4})?"
+                                    class="input mono"
+                                    value="<?php echo h($exchangeRate); ?>"
+                                    placeholder="例如 32.5000"
                                 >
                             </div>
 
@@ -285,5 +359,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <script src="./assets/app.js"></script>
     <script src="./assets/ai-parse.js"></script>
+    <script>
+    // 幣別切換時顯示/隱藏匯率欄位，TWD 固定 1.0000
+    document.addEventListener('DOMContentLoaded', function () {
+        const currencySelect = document.getElementById('currency');
+        const exchangeRateField = document.getElementById('exchangeRateField');
+        const exchangeRateInput = document.getElementById('exchange_rate');
+
+        function toggleExchangeRate() {
+            const currency = currencySelect.value;
+            if (currency === 'TWD') {
+                exchangeRateField.style.display = 'none';
+                exchangeRateInput.value = '1.0000';
+                exchangeRateInput.removeAttribute('required');
+            } else {
+                exchangeRateField.style.display = '';
+                exchangeRateInput.setAttribute('required', '');
+            }
+        }
+
+        currencySelect.addEventListener('change', toggleExchangeRate);
+        toggleExchangeRate(); // 初始化
+    });
+    </script>
 </body>
 </html>

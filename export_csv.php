@@ -65,6 +65,7 @@ $contentDisposition = buildContentDisposition($filename);
 // 審計日誌參數累計用
 $rowCount = 0;
 $exportSuccess = false;
+$currencyStats = [];
 
 try {
     if ($format === 'json') {
@@ -89,11 +90,22 @@ try {
             $category = $row['category'];
             $username = $row['username'];
             $note = (string) ($row['note'] ?? '');
+            $currency = $row['currency'] ?? 'TWD';
+            $exchangeRate = $row['exchange_rate'] ?? 10000;
+            $originalAmountCents = $row['original_amount_cents'] ?? 0;
+            $originalAmount = formatForeignAmount($originalAmountCents, $currency);
+            $exchangeRateStr = formatExchangeRate($exchangeRate);
+
+            // 統計幣別分布
+            $currencyStats[$currency] = ($currencyStats[$currency] ?? 0) + 1;
 
             $record = [
                 '日期' => $date,
                 '類型' => $type,
-                '金額 (元)' => $amount,
+                '原幣別' => $currency,
+                '原幣金額' => $originalAmount,
+                '匯率' => $exchangeRateStr,
+                '台幣金額 (元)' => $amount,
                 '分類' => $category,
                 '記錄者' => $username,
                 '備註' => $note,
@@ -122,7 +134,7 @@ try {
         fwrite($output, "\xEF\xBB\xBF");
 
         // 輸出標題列
-        fputcsv($output, ['日期', '類型', '金額 (元)', '分類', '記錄者', '備註']);
+        fputcsv($output, ['日期', '類型', '原幣別', '原幣金額', '匯率', '台幣金額 (元)', '分類', '記錄者', '備註']);
 
         // 輸出資料列（含 CSV 公式注入防護）
         while ($row = $stmt->fetch()) {
@@ -132,19 +144,26 @@ try {
             $category = h($row['category']);
             $username = h($row['username']);
             $description = h((string) ($row['note'] ?? ''));
+            $currency = h($row['currency'] ?? 'TWD');
+            $originalAmount = h(formatForeignAmount((int) ($row['original_amount_cents'] ?? 0), $row['currency'] ?? 'TWD'));
+            $exchangeRate = h(formatExchangeRate((int) ($row['exchange_rate'] ?? 10000)));
+
+            // 統計幣別分布（使用未轉義的幣別代碼）
+            $rawCurrency = $row['currency'] ?? 'TWD';
+            $currencyStats[$rawCurrency] = ($currencyStats[$rawCurrency] ?? 0) + 1;
 
             // 依資安規範 SEC-03：CSV 公式注入防護 (Formula Injection)
             // 若欄位開頭為 =, +, -, @, \t, \r，強制在前方加上單引號，避免 Excel 等軟體將其解析為公式
             // 注意：在 h() 轉義之後進行，確保 HTML 特殊字元已轉義
             $formulaPrefixes = ['=', '+', '-', '@', "\t", "\r"];
-            foreach ([&$date, &$type, &$category, &$username, &$description] as &$field) {
+            foreach ([&$date, &$type, &$currency, &$originalAmount, &$exchangeRate, &$amount, &$category, &$username, &$description] as &$field) {
                 if ($field !== '' && in_array($field[0], $formulaPrefixes, true)) {
                     $field = "'" . $field;
                 }
             }
             unset($field);
 
-            fputcsv($output, [$date, $type, $amount, $category, $username, $description]);
+            fputcsv($output, [$date, $type, $currency, $originalAmount, $exchangeRate, $amount, $category, $username, $description]);
             $rowCount++;
         }
 
@@ -160,7 +179,7 @@ try {
 
 // 審計日誌：在 shutdown 中檢查 $exportSuccess 且 HTTP 200 才寫入
 // 使用參考捕獲 (&$exportSuccess) 確保閉包能讀取 try 區塊中設定的 true 值
-register_shutdown_function(function () use (&$exportSuccess, &$format, &$ledgerId, &$ymRaw, &$rowCount) {
+register_shutdown_function(function () use (&$exportSuccess, &$format, &$ledgerId, &$ymRaw, &$rowCount, &$currencyStats) {
     if ($exportSuccess && http_response_code() === 200) {
         $action = $format === 'json' ? 'json_export' : 'csv_export';
         $detail = json_encode([
@@ -168,6 +187,7 @@ register_shutdown_function(function () use (&$exportSuccess, &$format, &$ledgerI
             'format' => $format,
             'ym' => $ymRaw ?: date('Y-m'),
             'count' => $rowCount,
+            'currency_stats' => $currencyStats,
         ], JSON_UNESCAPED_UNICODE);
         logAudit($action, $detail);
     }

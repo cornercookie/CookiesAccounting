@@ -100,7 +100,10 @@ if ($isVoucherMode) {
             ['傳票編號', (string) $entry['id']],
             ['日期', h($entry['entry_date'])],
             ['類型', h($entry['type'] === 'income' ? '收入' : ($entry['type'] === 'expense' ? '支出' : '轉帳'))],
-            ['金額 (元)', h(formatCents($entry['amount_cents']))],
+            ['原幣別', h($entry['currency'] ?? 'TWD')],
+            ['原幣金額', h(formatForeignAmount((int) ($entry['original_amount_cents'] ?? 0), $entry['currency'] ?? 'TWD'))],
+            ['匯率', h(formatExchangeRate((int) ($entry['exchange_rate'] ?? 10000)))],
+            ['台幣金額 (元)', h(formatCents($entry['amount_cents']))],
             ['分類', h($entry['category'])],
             ['記錄者', h($entry['username'])],
             ['備註', h((string) ($entry['note'] ?? ''))],
@@ -263,33 +266,39 @@ if ($isVoucherMode) {
         $pdf->Cell(0, 8, '詳細記錄', 0, 1, 'L');
         $pdf->SetFont('helvetica', '', 10);
 
-        $tableHeader = ['日期', '類型', '金額（元）', '分類', '記錄者', '備註'];
-        $w = [30, 30, 35, 60, 40, 105];
+        $tableHeader = ['日期', '類型', '原幣別', '原幣金額', '匯率', '台幣金額（元）', '分類', '記錄者', '備註'];
+        $w = [25, 25, 25, 30, 25, 30, 50, 35, 75];
 
         $pdf->SetFillColor(220, 220, 220);
         $pdf->SetTextColor(0);
-        $pdf->SetFont('helvetica', 'B', 9);
+        $pdf->SetFont('helvetica', 'B', 8);
         foreach ($tableHeader as $i => $hText) {
             $pdf->Cell($w[$i], 7, h($hText), 1, 0, 'C', true);
         }
         $pdf->Ln();
 
-        $pdf->SetFont('helvetica', '', 9);
+        $pdf->SetFont('helvetica', '', 8);
         $pdf->SetTextColor(0);
         foreach ($entries as $row) {
             $date = $row['entry_date'];
             $type = $row['type'] === 'income' ? '收入' : ($row['type'] === 'expense' ? '支出' : '轉帳');
+            $currency = $row['currency'] ?? 'TWD';
+            $originalAmount = formatForeignAmount((int) ($row['original_amount_cents'] ?? 0), $currency);
+            $exchangeRate = formatExchangeRate((int) ($row['exchange_rate'] ?? 10000));
             $amount = formatCents($row['amount_cents']);
             $category = $row['category'];
             $username = $row['username'];
             $description = (string) ($row['note'] ?? '');
 
-            $pdf->Cell($w[0], 6, h($date), 1, 0, 'L');
-            $pdf->Cell($w[1], 6, h($type), 1, 0, 'L');
-            $pdf->Cell($w[2], 6, h($amount), 1, 0, 'R');
-            $pdf->Cell($w[3], 6, h($category), 1, 0, 'L');
-            $pdf->Cell($w[4], 6, h($username), 1, 0, 'L');
-            $pdf->Cell($w[5], 6, h($description), 1, 0, 'L');
+            $pdf->Cell($w[0], 5, h($date), 1, 0, 'L');
+            $pdf->Cell($w[1], 5, h($type), 1, 0, 'L');
+            $pdf->Cell($w[2], 5, h($currency), 1, 0, 'C');
+            $pdf->Cell($w[3], 5, h($originalAmount), 1, 0, 'R');
+            $pdf->Cell($w[4], 5, h($exchangeRate), 1, 0, 'C');
+            $pdf->Cell($w[5], 5, h($amount), 1, 0, 'R');
+            $pdf->Cell($w[6], 5, h($category), 1, 0, 'L');
+            $pdf->Cell($w[7], 5, h($username), 1, 0, 'L');
+            $pdf->Cell($w[8], 5, h($description), 1, 0, 'L');
             $pdf->Ln();
         }
 
@@ -322,19 +331,31 @@ if ($isVoucherMode) {
 // 審計日誌：在 shutdown 中檢查 $exportSuccess 且 HTTP 200 才寫入
 // 使用參考捕獲 (&$exportSuccess 等) 確保閉包能讀取 try 區塊中設定的 true 值
 // 注意：voucher 模式下 $startDate/$endDate 未定義，僅在月結單模式使用
-register_shutdown_function(function () use (&$exportSuccess, &$isVoucherMode, &$ledgerId, &$entryId, &$startDate, &$endDate) {
+register_shutdown_function(function () use (&$exportSuccess, &$isVoucherMode, &$ledgerId, &$entryId, &$startDate, &$endDate, &$entry, &$entries) {
     if ($exportSuccess && http_response_code() === 200) {
         if ($isVoucherMode) {
             $detail = json_encode([
                 'ledger_id' => $ledgerId,
                 'entry_id' => $entryId,
+                'currency' => $entry['currency'] ?? 'TWD',
+                'exchange_rate' => $entry['exchange_rate'] ?? 10000,
+                'original_amount_cents' => $entry['original_amount_cents'] ?? 0,
             ], JSON_UNESCAPED_UNICODE);
             logAudit('pdf_voucher_export', $detail);
         } else {
+            // 月結單：統計幣別分布
+            $currencyStats = [];
+            if (isset($entries) && is_array($entries)) {
+                foreach ($entries as $row) {
+                    $curr = $row['currency'] ?? 'TWD';
+                    $currencyStats[$curr] = ($currencyStats[$curr] ?? 0) + 1;
+                }
+            }
             $detail = json_encode([
                 'ledger_id' => $ledgerId,
                 'start_date' => $startDate,
                 'end_date' => $endDate,
+                'currency_stats' => $currencyStats,
             ], JSON_UNESCAPED_UNICODE);
             logAudit('pdf_export', $detail);
         }

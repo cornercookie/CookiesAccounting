@@ -240,6 +240,7 @@ erDiagram
 - `idx_recurring_entries_next_due` (next_due_date)
 
 **生成機制**：使用者點擊「立即記一筆」→ 建立 `entries` 記錄，`recurring_source_id` 關聯 → `next_due_date` 由前端/排程更新（目前手動觸發）
+**幣別限制（[#29]）**：`recurring_entries` 僅支援台幣（TWD），表無 `currency`、`exchange_rate`、`original_amount_cents` 欄位；生成分錄時自動填入 `currency='TWD'`、`exchange_rate=10000`、`original_amount_cents=amount_cents`。未來若需支援多幣別重複記錄，才於此表補加三欄位。
 
 ---
 
@@ -356,6 +357,7 @@ erDiagram
 | v6 | 2026-11 | users 加 password_changed_at | ALTER TABLE ADD COLUMN |
 | v7 | 2026-11 | 新增 category_budgets 表（類別預算 [#19]） | 向前相容，冪等性守衛 |
 | v8 | 2026-11 | category_budgets 新增唯一索引 `uq_category_budgets_ledger_category_active` [#26] | 向前相容，try-catch 守衛不中斷 |
+| v9 | 2026-11 | [#29] 確認 `recurring_entries` 表無多幣別三欄位（currency / exchange_rate / original_amount_cents），`entries` 表已由 [#24] 新增三欄位；無資料庫異動，僅文件記錄 | 無異動，文件化既有設計決策 |
 
 > **遷移原則**：`ensureSchema()` 在每次 `getPdo()` 執行，所有 ALTER 皆有冪等性守衛（檢查欄位/索引是否存在）。
 

@@ -219,6 +219,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
     if (!checkCsrf(is_string($_POST['csrf_token'] ?? '') ? $_POST['csrf_token'] : '')) {
         redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('安全驗證失敗，請重新操作。'));
     }
+    if (!isset($today)) {
+        $today = new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei'));
+    }
     $recurringId = filter_var($_POST['recurring_id'] ?? '', FILTER_VALIDATE_INT);
     if ($recurringId === false || $recurringId === null) {
         redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('無效的重複記錄編號。'));

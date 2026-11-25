@@ -159,6 +159,7 @@ stateDiagram-v2
 - 生成時 `entry_date = 今日`、`note = '來自重複記錄：' + name`
 - `recurring_source_id` 關聯回來源
 - `next_due_date` **不自動更新**（目前手動管理，未來可加排程）
+- **幣別限制（[#29]）**：僅支援台幣（TWD）。`recurring_entries` 表無 `currency`、`exchange_rate`、`original_amount_cents` 欄位；生成分錄時自動填入 `currency='TWD'`、`exchange_rate=10000`（basis points，即 1.0000）、`original_amount_cents=amount_cents`。未來若需支援多幣別重複記錄，才於 `recurring_entries` 表補加三欄位並修改生成邏輯。
 
 ---
 

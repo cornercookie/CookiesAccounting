@@ -19,6 +19,7 @@ erDiagram
     LEDGERS ||--o{ ENTRIES : "contains"
     LEDGERS ||--o{ RECURRING_ENTRIES : "contains"
     LEDGERS ||--o{ CATEGORIES : "uses (global)"
+    LEDGERS ||--o{ CATEGORY_BUDGETS : "has budgets"
     ENTRIES ||--o{ ENTRY_COMMENTS : "has"
     USERS ||--o{ ENTRY_COMMENTS : "creates"
 
@@ -80,6 +81,16 @@ erDiagram
         INTEGER ledger_id "NULL=全站共用"
         TEXT created_at
         TEXT updated_at
+    }
+    CATEGORY_BUDGETS {
+        INTEGER id PK
+        INTEGER ledger_id FK
+        TEXT category FK
+        INTEGER monthly_budget_cents
+        INTEGER is_active "0|1"
+        TEXT created_at
+        TEXT updated_at
+        UNIQUE(ledger_id, category, is_active)
     }
     LOGIN_ATTEMPTS {
         TEXT identifier PK "username|IP"
@@ -249,7 +260,31 @@ erDiagram
 
 ---
 
-### 7. login_attempts（登入嘗試記錄）
+### 7. category_budgets（類別預算表）— [#19] [#26]
+
+| 欄位 | 型別 | 約束 | 說明 |
+|------|------|------|------|
+| `id` | INTEGER | PK, AUTOINCREMENT | 主鍵 |
+| `ledger_id` | INTEGER | NOT NULL, FK→ledgers.id | 所屬帳本 |
+| `category` | TEXT | NOT NULL, FK→categories(name) | 類別名稱，參考全站分類表 |
+| `monthly_budget_cents` | INTEGER | NOT NULL CHECK (>0) | 每月預算金額，整數分 |
+| `is_active` | INTEGER | NOT NULL DEFAULT 1 CHECK (0,1) | 1=啟用、0=停用（軟刪除） |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now','localtime')) | 建立時間 |
+| `updated_at` | TEXT | NOT NULL DEFAULT (datetime('now','localtime')) | 最後變更時間 |
+
+**索引**：
+- `idx_category_budgets_ledger_active` (ledger_id, is_active) — 查詢該帳本所有啟用/停用預算
+- `idx_category_budgets_ledger_category` (ledger_id, category) — 查詢該帳本特定類別預算
+- `uq_category_budgets_ledger_category_active` (ledger_id, category, is_active) **UNIQUE** — [#26] 同一帳本同一類別同一啟用狀態不得重複
+
+**資料完整性**：
+- 唯一索引 `uq_category_budgets_ledger_category_active` 確保同一帳本同一類別不會有多筆啟用中（`is_active=1`）預算並存
+- `is_active=0` 視為軟刪除，允許歷史記錄保留（同一類別可有一筆啟用中與多筆停用並存）
+- 應用層 INSERT 前檢查 `is_active=1` 重複 + DB 唯一索引雙重保障，防禦競態條件
+
+---
+
+### 8. login_attempts（登入嘗試記錄）
 
 | 欄位 | 型別 | 約束 | 說明 |
 |------|------|------|------|
@@ -319,8 +354,10 @@ erDiagram
 | v4 | 2026-11 | ledgers 加 monthly_budget_cents、archived | ALTER TABLE ADD COLUMN |
 | v5 | 2026-11 | entries 加 receipt_path、recurring_source_id | ALTER TABLE ADD COLUMN |
 | v6 | 2026-11 | users 加 password_changed_at | ALTER TABLE ADD COLUMN |
+| v7 | 2026-11 | 新增 category_budgets 表（類別預算 [#19]） | 向前相容，冪等性守衛 |
+| v8 | 2026-11 | category_budgets 新增唯一索引 `uq_category_budgets_ledger_category_active` [#26] | 向前相容，try-catch 守衛不中斷 |
 
-> **遷移原則**：`ensureSchema()` 在每次 `getPdo()` 執行，所有 ALTER 皆有冪等性守衛（檢查欄位是否存在）。
+> **遷移原則**：`ensureSchema()` 在每次 `getPdo()` 執行，所有 ALTER 皆有冪等性守衛（檢查欄位/索引是否存在）。
 
 ---
 
@@ -373,6 +410,8 @@ erDiagram
 | 登入鎖定檢查 | 主鍵 (identifier) | PK 查詢極快 |
 | 重複記錄：下次到期查詢 | `idx_recurring_entries_next_due` | 儀表板提醒 |
 | 分錄留言：依分錄查詢 | `idx_entry_comments_entry_id` + `idx_entry_comments_deleted` | LEFT JOIN entries 避免 N+1，WHERE deleted=0 |
+| 類別預算：帳本啟用中預算列表 | `idx_category_budgets_ledger_active` (ledger_id, is_active) | WHERE ledger_id + is_active=1 |
+| 類別預算：重複檢查（應用層/DB 唯一） | `uq_category_budgets_ledger_category_active` (ledger_id, category, is_active) | 唯一約束檢查、最左前綴覆蓋 ledger_id+category |
 
 ---
 
@@ -387,6 +426,7 @@ erDiagram
 | **審計不可刪除** | `audit_log` 無 DELETE 權限，僅管理員可讀 |
 | **密碼變更失效 Session** | `users.password_changed_at` 更新，`requireSessionFresh()` 檢查並銷毀舊 Session |
 | **至少一位管理員** | `admin/users.php` 刪除/變更角色時檢查 `COUNT(*) WHERE role='admin'` |
+| **類別預算唯一性** | `uq_category_budgets_ledger_category_active` (ledger_id, category, is_active) UNIQUE 索引 + 應用層 INSERT 前檢查，雙重保障防禦競態條件 [#26] |
 
 ---
 

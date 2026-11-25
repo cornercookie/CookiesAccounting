@@ -55,18 +55,34 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         }
 
         if ($action === 'create') {
-            // 檢查是否已存在啟用中同類別預算
+            // 檢查是否已存在啟用中同類別預算（應用層檢查，雙重保障）
             $chk = $pdo->prepare('SELECT id FROM category_budgets WHERE ledger_id = :ledger_id AND category = :category AND is_active = 1 LIMIT 1');
             $chk->execute([':ledger_id' => $ledgerId, ':category' => $category]);
             if ($chk->fetch()) {
-                redirect('./category_budget.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('該類別已有啟用中的預算，請編輯現有記錄。'));
+                redirect('./category_budget.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('此類別預算已存在，請編輯現有記錄。'));
             }
             $stmt = $pdo->prepare('
                 INSERT INTO category_budgets (ledger_id, category, monthly_budget_cents, is_active, updated_at)
                 VALUES (:ledger_id, :category, :budget, 1, datetime("now","localtime"))
             ');
-            $stmt->execute([':ledger_id' => $ledgerId, ':category' => $category, ':budget' => $budgetCents]);
-            logAudit('category_budget_create', 'ledger_id=' . $ledgerId . ' category=' . $category . ' budget_cents=' . $budgetCents);
+            // [#26] 捕獲唯一約束違反：雙重錯誤碼、獨立失敗審計、通用錯誤訊息、不 throw
+            try {
+                $stmt->execute([':ledger_id' => $ledgerId, ':category' => $category, ':budget' => $budgetCents]);
+                logAudit('category_budget_create', 'ledger_id=' . $ledgerId . ' category=' . $category . ' budget_cents=' . $budgetCents);
+            } catch (PDOException $e) {
+                // 唯一約束違反 (SQLite: code 23000 / errorInfo[1] = 1555)
+                if ($e->getCode() === '23000' || ($e->errorInfo[1] ?? null) === 1555) {
+                    logAudit('category_budget_create_conflict', "ledger_id=$ledgerId category=$category reason=unique_constraint");
+                    redirect('./category_budget.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('此類別預算已存在，請編輯現有記錄。'));
+                    return;
+                }
+                // 其他資料庫錯誤：記錄細節，導向通用錯誤頁，不外洩堆疊/ SQL
+                logError('category_budget_create PDOException: ' . $e->getMessage()
+                    . ' | SQL: INSERT INTO category_budgets ...'
+                    . ' | Params: ledger_id=' . $ledgerId . ' category=' . $category . ' budget=' . $budgetCents);
+                redirect('./error.php?code=db_error');
+                return;
+            }
         } else { // update
             $id = filter_var($_POST['id'] ?? '', FILTER_VALIDATE_INT);
             if ($id === false || $id === null) {

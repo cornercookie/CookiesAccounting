@@ -224,7 +224,7 @@ SQL);
     CREATE INDEX IF NOT EXISTS idx_recurring_entries_next_due  ON recurring_entries(next_due_date);
 SQL);
 
-    // category_budgets 表（類別預算）
+    // category_budgets 表（類別預算）[#26 新增唯一索引]
     $pdo->exec(<<<'SQL'
     CREATE TABLE IF NOT EXISTS category_budgets (
         id                    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -243,9 +243,18 @@ SQL);
         ON category_budgets(ledger_id, is_active);
     CREATE INDEX IF NOT EXISTS idx_category_budgets_ledger_category
         ON category_budgets(ledger_id, category);
-    -- 唯一性由應用層保證（INSERT 前檢查啟用中同類別），不建立唯一索引
-    -- 參考 Design.md §3.4：避免 SQLite Partial Index 版本相容性問題
 SQL);
+    // [#26] 唯一索引：獨立 exec + try-catch，不中斷主流程
+    try {
+        $pdo->exec(<<<'SQL'
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_category_budgets_ledger_category_active
+            ON category_budgets(ledger_id, category, is_active);
+        SQL);
+    } catch (PDOException $e) {
+        logError('[#26] category_budgets 唯一索引建立失敗: ' . $e->getMessage()
+            . ' | 可能原因：既有資料有重複 (ledger_id, category, is_active) 組合記錄（含 is_active=0 或 1），請手動清理');
+        // 不 throw，確保 ensureSchema() 繼續執行後續建表
+    }
 
     $pdo->exec(<<<'SQL'
     CREATE INDEX IF NOT EXISTS idx_ledgers_owner_id              ON ledgers(owner_id);

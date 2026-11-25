@@ -260,6 +260,25 @@ SQL);
     CREATE INDEX IF NOT EXISTS idx_audit_log_action              ON audit_log(action);
 SQL);
 
+    // entry_comments 表（家庭訊息留言板 [#21]）
+    $pdo->exec(<<<'SQL'
+    CREATE TABLE IF NOT EXISTS entry_comments (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        entry_id      INTEGER NOT NULL,
+        user_id       INTEGER NOT NULL,
+        comment       TEXT    NOT NULL,
+        deleted       INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0,1)),
+        created_at    TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+        FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id)  REFERENCES users(id)
+    );
+SQL);
+    $pdo->exec(<<<'SQL'
+    CREATE INDEX IF NOT EXISTS idx_entry_comments_entry_id ON entry_comments(entry_id);
+    CREATE INDEX IF NOT EXISTS idx_entry_comments_created_at ON entry_comments(created_at);
+    CREATE INDEX IF NOT EXISTS idx_entry_comments_deleted ON entry_comments(deleted);
+SQL);
+
     // 舊版資料庫 migration：ledgers 補 archived 欄位（封存/還原帳本用）
     $cols = $pdo->query('PRAGMA table_info(ledgers)')->fetchAll(PDO::FETCH_ASSOC);
     $hasArchived = false;

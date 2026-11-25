@@ -66,6 +66,8 @@ graph TD
 | **還原帳本** | ✅ | ❌ | ❌ | ✅ | `admin/archived_ledgers.php` |
 | **管理帳本成員** | ✅ | ❌ | ❌ | ✅ | `admin/ledgers.php` 授權/撤銷 |
 | **變更帳本擁有者** | ❌ | ❌ | ❌ | ✅ | `admin/ledgers.php` 重新指定 |
+| **新增留言** | ✅ | ✅ | ✅ | ❌ | `entry_comment.php`，需 ledger_access |
+| **檢視留言** | ✅ | ✅ | ✅ | ❌ | `ledger.php` 展開區塊，需 ledger_access |
 
 > *：member 若是重複記錄建立者，可編輯/停用自己的重複記錄
 
@@ -125,6 +127,7 @@ $accessRole = $ledger['role']; // 取得帳本內角色
 | `yearly_report.php` | 查詢 `ledger_access` 取得可存取帳本 IDs → IN 查詢 | 僅顯示授權帳本資料 |
 | `quarterly_report.php` | 同上 | 同上 |
 | `admin/ledgers.php` | admin 可管理所有，但授權操作仍寫入 `ledger_access` | - |
+| `entry_comment.php` | 驗證 `entries` 存在、`ledger_id` 吻合、`deleted=0` + `ledger_access` 任意角色 | `ledger.php?error=1&msg=...`（保留查詢參數） |
 
 ---
 
@@ -190,6 +193,7 @@ flowchart TD
 | 管理員重新指定擁有者 | `admin_ledger_reassign_owner` | `ledger_id=3 old_owner=2 new_owner=5` |
 | 擁有者設定預算 | `ledger_budget_set` | `ledger_id=3 monthly_budget_cents=500000` |
 | 建立重複記錄 | `recurring_create` | `recurring_id=7 ledger_id=3 name=房租 amount=300000` |
+| 新增留言 | `entry_comment` | `{"entry_id":123}`（JSON、不含留言內容） |
 
 ---
 

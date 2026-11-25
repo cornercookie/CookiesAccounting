@@ -338,6 +338,32 @@ stateDiagram-v2
 
 ---
 
+### 12. 家庭訊息留言板（[#21]）
+
+**業務規則**
+
+| 規則 | 實作方式 | 備註 |
+|------|----------|------|
+| **留言長度限制** | `mb_strlen(trim($comment), 'UTF-8')` 1~200 字元 | 空白字元拒絕、前端即時字元計數 |
+| **留言排序** | `created_at DESC`（最新在上） | SQL `ORDER BY` + PHP 分組保持順序 |
+| **權限模型** | `ledger_access.role IN ('owner','member','viewer')` 皆可新增/檢視 | 無額外角色限制 |
+| **審計日誌** | `action='entry_comment'`，`detail=json_encode(['entry_id' => $entryId])` | **嚴禁包含留言內容**（隱私保護） |
+| **軟刪除** | `entry_comments.deleted` 欄位預留、`ON DELETE CASCADE` 級聯清理 | 目前無刪除介面，分錄作廢時自動清理留言 |
+| **XSS 防護** | 所有輸出經 `h()` 轉義 | 留言內容視為不可信輸入 |
+| **CSRF 防護** | 表單含 `csrf_token`，`checkCsrf()` 用 `hash_equals()` | PRG 模式、失敗保留查詢參數 |
+| **IDOR 防護** | 1. 驗證 `entry_id` 存在、`ledger_id` 吻合、`deleted=0`<br>2. 查詢 `ledger_access` 確認權限 | 雙重驗證 |
+
+**非功能性需求**
+
+| 項目 | 要求 | 實作 |
+|------|------|------|
+| 效能 | 頁面載入增加 ≤200ms | 單次 LEFT JOIN 查詢、索引優化 |
+| 併發 | SQLite WAL + busy_timeout=5000 | 既有 db.php 設定 |
+| 資料保留 | 長期保留，與 entries 生命週期一致 | 無物理刪除、級聯清理 |
+| 可用性 | 留言功能失敗不影響主帳本 | 錯誤隔離、PRG redirect |
+
+---
+
 ## 相關文件
 
 - [資料庫結構](./database-schema.md) — ERD、欄位、索引、約束

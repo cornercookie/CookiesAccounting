@@ -92,6 +92,7 @@ graph TB
 | **收據檢視** | `view_receipt.php` | 受保護頁面 | 登入用戶（IDOR 檢查） | 私密收據串流、防路徑遍歷 |
 | **AI 解析** | `ai_parse.php` | 受保護頁面 | owner/member | 圖片/文字解析為記帳草稿 |
 | **變更密碼** | `change_password.php` | 受保護頁面 | 登入用戶 | 密碼強度驗證、Session 失效 |
+| **新增留言** | `entry_comment.php` | 受保護頁面 | 登入用戶（ledger_access 任意角色） | 分錄留言新增、PRG 模式、審計日誌 |
 | **使用者管理** | `admin/users.php` | 管理員頁面 | admin | 建立/重設密碼/變更角色/刪除使用者 |
 | **帳本管理** | `admin/ledgers.php` | 管理員頁面 | admin | 建立帳本、授權存取、擁有者重新指定 |
 | **分類管理** | `admin/category_management.php` | 管理員頁面 | admin | 全站分類 CRUD |

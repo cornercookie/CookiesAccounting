@@ -392,20 +392,57 @@ if ($page > $totalPages) {
 $offset = ($page - 1) * $perPage;
 
 $stmt = $pdo->prepare("
-    SELECT e.id, e.entry_date, e.type, e.category, e.amount_cents, e.note, e.receipt_path, e.ack_status, e.ack_user_id, e.ack_at, e.user_id, u.username
+    SELECT e.id, e.entry_date, e.type, e.category, e.amount_cents, e.note, e.receipt_path, e.ack_status, e.ack_user_id, e.ack_at, e.user_id, u.username,
+           ec.id AS comment_id, ec.comment, ec.created_at AS comment_created_at, cu.username AS comment_user
     FROM entries e
     INNER JOIN users u ON u.id = e.user_id
+    LEFT JOIN entry_comments ec ON ec.entry_id = e.id
+    LEFT JOIN users cu ON cu.id = ec.user_id
     $where
-    ORDER BY e.entry_date DESC, e.id DESC
+    ORDER BY e.entry_date DESC, e.id DESC, ec.created_at DESC
     LIMIT :limit OFFSET :offset
 ");
-foreach ($params as $key => $value) {
+$allParams = $params + [':limit' => $perPage, ':offset' => $offset];
+foreach ($allParams as $key => $value) {
     $stmt->bindValue($key, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
 }
-$stmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
-$stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
 $stmt->execute();
-$entries = $stmt->fetchAll();
+$rows = $stmt->fetchAll();
+
+// 將查詢結果按 entry_id 分組，留言依 created_at 降冪（最新在上）
+$entries = [];
+$commentsByEntry = [];
+foreach ($rows as $row) {
+    $eid = (int) $row['id'];
+    if (!isset($entries[$eid])) {
+        // 只保留 entry 欄位（去除 comment 欄位）
+        $entries[$eid] = [
+            'id'           => $row['id'],
+            'entry_date'   => $row['entry_date'],
+            'type'         => $row['type'],
+            'category'     => $row['category'],
+            'amount_cents' => $row['amount_cents'],
+            'note'         => $row['note'],
+            'receipt_path' => $row['receipt_path'],
+            'ack_status'   => $row['ack_status'],
+            'ack_user_id'  => $row['ack_user_id'],
+            'ack_at'       => $row['ack_at'],
+            'user_id'      => $row['user_id'],
+            'username'     => $row['username'],
+        ];
+    }
+    // 收集留言
+    if ($row['comment_id'] !== null) {
+        $commentsByEntry[$eid][] = [
+            'id'            => $row['comment_id'],
+            'comment'       => $row['comment'],
+            'created_at'    => $row['comment_created_at'],
+            'comment_user'  => $row['comment_user'],
+        ];
+    }
+}
+// 重新索引 entries 為連續陣列
+$entries = array_values($entries);
 
 // 該帳本出現過的類別（供篩選下拉使用；查詢條件以 h() 輸出）
 $catStmt = $pdo->prepare('SELECT DISTINCT category FROM entries WHERE ledger_id = :ledger_id AND deleted = 0 ORDER BY category');
@@ -899,11 +936,16 @@ if (!empty($_SESSION['voice_played'])) {
                                     <th class="receipt-col hide-m">收據</th>
                                     <th class="hide-m">備註</th>
                                     <th class="ctr">確認狀態</th>
+                                    <th class="ctr">留言</th>
                                     <th class="ctr">操作</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php foreach ($entries as $entry): ?>
+                                <?php foreach ($entries as $entry):
+                                    $eid = (int) $entry['id'];
+                                    $comments = $commentsByEntry[$eid] ?? [];
+                                    $commentCount = count($comments);
+                                ?>
                                     <tr>
                                         <td><span class="vno <?php echo $entry['type'] === 'income' ? 'in' : ($entry['type'] === 'expense' ? 'out' : 'plain'); ?>"><?php echo $entry['type'] === 'income' ? '收' : ($entry['type'] === 'expense' ? '支' : '轉'); ?>-<?php echo h(str_pad((string) $entry['id'], 3, '0', STR_PAD_LEFT)); ?></span></td>
                                         <td class="mono"><?php echo h($entry['entry_date']); ?></td>
@@ -937,6 +979,11 @@ if (!empty($_SESSION['voice_played'])) {
                                             <span class="ack-chip <?php echo h($ackClass); ?>"><?php echo h($ackLabel); ?></span>
                                         </td>
                                         <td class="ctr">
+                                            <button type="button" class="btn secondary sm comment-toggle" data-entry-id="<?php echo $eid; ?>" aria-expanded="false" aria-controls="comments-<?php echo $eid; ?>">
+                                                留言 <?php echo $commentCount > 0 ? '(' . $commentCount . ')' : ''; ?>
+                                            </button>
+                                        </td>
+                                        <td class="ctr">
                                             <?php
                                             $isEntryCreator = ((int) $entry['user_id'] === $userId);
                                             $isLedgerOwner  = ($accessRole === 'owner');
@@ -967,6 +1014,47 @@ if (!empty($_SESSION['voice_played'])) {
                                             <?php else: ?>
                                             <span class="meta">—</span>
                                             <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                    <!-- 留言展開區塊 -->
+                                    <tr id="comments-<?php echo $eid; ?>" class="comment-row" style="display:none;">
+                                        <td colspan="10">
+                                            <div class="comment-section">
+                                                <!-- 留言列表 -->
+                                                <div class="comment-list" role="region" aria-label="留言列表">
+                                                    <?php if ($comments): ?>
+                                                        <?php foreach ($comments as $c): ?>
+                                                        <div class="comment-item">
+                                                            <div class="comment-meta">
+                                                                <span class="role-chip small"><?php echo h($c['comment_user']); ?></span>
+                                                                <time class="meta" datetime="<?php echo h($c['created_at']); ?>"><?php echo h($c['created_at']); ?></time>
+                                                            </div>
+                                                            <div class="comment-text"><?php echo h($c['comment']); ?></div>
+                                                        </div>
+                                                        <?php endforeach; ?>
+                                                    <?php else: ?>
+                                                        <p class="comment-empty">尚無留言，成為第一個留言的人吧。</p>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <!-- 留言表單 -->
+                                                <form method="POST" action="./entry_comment.php" class="comment-form" aria-label="新增留言">
+                                                    <input type="hidden" name="ledger_id" value="<?php echo h((string) $ledgerId); ?>">
+                                                    <input type="hidden" name="entry_id" value="<?php echo h((string) $eid); ?>">
+                                                    <input type="hidden" name="ym" value="<?php echo h($ym); ?>">
+                                                    <input type="hidden" name="type" value="<?php echo h($typeSel); ?>">
+                                                    <input type="hidden" name="category" value="<?php echo h($catSel); ?>">
+                                                    <input type="hidden" name="page" value="<?php echo h((string) $page); ?>">
+                                                    <input type="hidden" name="entry_date" value="<?php echo h($entryDate ?? ''); ?>">
+                                                    <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
+                                                    <div class="comment-form-row">
+                                                        <textarea name="comment" class="comment-textarea" rows="2" maxlength="200" placeholder="輸入留言（最多 200 字元）" required aria-describedby="char-count-<?php echo $eid; ?>"></textarea>
+                                                    </div>
+                                                    <div class="comment-form-footer">
+                                                        <span id="char-count-<?php echo $eid; ?>" class="char-count">0 / 200</span>
+                                                        <button type="submit" class="btn primary sm">送出留言</button>
+                                                    </div>
+                                                </form>
+                                            </div>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>

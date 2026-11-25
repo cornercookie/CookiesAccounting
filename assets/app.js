@@ -122,4 +122,38 @@
     });
   })();
 
+  // ---------- 留言展開/收合與字元計數（ledger.php [#21]） ----------
+  (function initCommentToggle() {
+    // 留言展開按鈕
+    document.querySelectorAll('.comment-toggle').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var entryId = this.dataset.entryId;
+        var row = document.getElementById('comments-' + entryId);
+        var isExpanded = this.getAttribute('aria-expanded') === 'true';
+        if (row) {
+          row.style.display = isExpanded ? 'none' : 'table-row';
+          this.setAttribute('aria-expanded', isExpanded ? 'false' : 'true');
+        }
+      });
+    });
+
+    // 字元計數即時更新
+    document.querySelectorAll('.comment-textarea').forEach(function (textarea) {
+      var maxLen = parseInt(textarea.getAttribute('maxlength') || '200', 10);
+      var countId = textarea.getAttribute('aria-describedby');
+      var countEl = countId ? document.getElementById(countId) : null;
+
+      function updateCount() {
+        var len = textarea.value.length;
+        if (countEl) {
+          countEl.textContent = len + ' / ' + maxLen;
+          countEl.style.color = len > maxLen ? 'var(--red)' : 'var(--ink-3)';
+        }
+      }
+
+      textarea.addEventListener('input', updateCount);
+      updateCount(); // 初始化
+    });
+  })();
+
 })();

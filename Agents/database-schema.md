@@ -19,6 +19,8 @@ erDiagram
     LEDGERS ||--o{ ENTRIES : "contains"
     LEDGERS ||--o{ RECURRING_ENTRIES : "contains"
     LEDGERS ||--o{ CATEGORIES : "uses (global)"
+    ENTRIES ||--o{ ENTRY_COMMENTS : "has"
+    USERS ||--o{ ENTRY_COMMENTS : "creates"
 
     USERS {
         INTEGER id PK
@@ -100,6 +102,14 @@ erDiagram
         TEXT action
         TEXT detail
         TEXT ip
+        TEXT created_at
+    }
+    ENTRY_COMMENTS {
+        INTEGER id PK
+        INTEGER entry_id FK
+        INTEGER user_id FK
+        TEXT comment
+        INTEGER deleted
         TEXT created_at
     }
 ```
@@ -314,6 +324,44 @@ erDiagram
 
 ---
 
+### 10. entry_comments（分錄留言表）— [#21] 家庭訊息留言板
+
+| 欄位 | 型別 | 約束 | 說明 |
+|------|------|------|------|
+| `id` | INTEGER | PK, AUTOINCREMENT | 留言編號 |
+| `entry_id` | INTEGER | NOT NULL, FK→entries.id (ON DELETE CASCADE) | 關聯記帳分錄 |
+| `user_id` | INTEGER | NOT NULL, FK→users.id | 留言者 |
+| `comment` | TEXT | NOT NULL | 留言內容（≤200 字元，應用層驗證） |
+| `deleted` | INTEGER | NOT NULL DEFAULT 0, CHECK IN (0,1) | 軟刪除標記：0=正常、1=已刪除（預留未來擴充） |
+| `created_at` | TEXT | NOT NULL DEFAULT (datetime('now','localtime')) | 建立時間 |
+
+**索引**：
+- `idx_entry_comments_entry_id` (entry_id) — 依分錄查詢留言核心索引
+- `idx_entry_comments_created_at` (created_at) — 時間排序
+- `idx_entry_comments_deleted` (deleted) — 軟刪除篩選
+
+**資料完整性**：
+- `entry_id` 級聯刪除（`ON DELETE CASCADE`）：分錄作廢時自動清理留言
+- `deleted` 欄位預留未來編輯/刪除功能擴充，目前應用層不提供刪除介面
+
+---
+
+## 遷移紀錄
+
+| 版本 | 日期 | 變更內容 | 相容性 |
+|------|------|----------|--------|
+| v1 | 初始 | 建立 users、ledgers、ledger_access、entries、login_attempts、audit_log | 基礎版本 |
+| v2 | 2026-11 | 新增 login_sessions、categories、recurring_entries | 向前相容 |
+| v3 | 2026-11 | entries.type CHECK 加入 'transfer'（需表重建） | 遷移腳本冪等 |
+| v4 | 2026-11 | ledgers 加 monthly_budget_cents、archived | ALTER TABLE ADD COLUMN |
+| v5 | 2026-11 | entries 加 receipt_path、recurring_source_id | ALTER TABLE ADD COLUMN |
+| v6 | 2026-11 | users 加 password_changed_at | ALTER TABLE ADD COLUMN |
+| v7 | 2026-11 | 新增 entry_comments 表（含 deleted、FK ON DELETE CASCADE） | 向前相容，冪等性守衛 |
+
+> **遷移原則**：`ensureSchema()` 在每次 `getPdo()` 執行，所有 ALTER 皆有冪等性守衛（檢查欄位是否存在）。
+
+---
+
 ## 關鍵查詢模式與索引對應
 
 | 查詢場景 | 使用索引 | 備註 |
@@ -324,6 +372,7 @@ erDiagram
 | 審計日誌：按時間查詢 | `idx_audit_log_created_at` | 管理員檢視 |
 | 登入鎖定檢查 | 主鍵 (identifier) | PK 查詢極快 |
 | 重複記錄：下次到期查詢 | `idx_recurring_entries_next_due` | 儀表板提醒 |
+| 分錄留言：依分錄查詢 | `idx_entry_comments_entry_id` + `idx_entry_comments_deleted` | LEFT JOIN entries 避免 N+1，WHERE deleted=0 |
 
 ---
 

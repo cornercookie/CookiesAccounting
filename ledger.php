@@ -329,19 +329,31 @@ $balanceCents = $incomeCents - $expenseCents;
 $budgetCents = (int) ($ledger['monthly_budget_cents'] ?? 0);
 $isCurrentMonth = ($ym === $today->format('Y-m'));
 $budgetProgress = null; // ['percent'=>int, 'status'=>'ok|warn|danger', 'remaining'=>int]
+$monthlyBudgetExpenseCents = $expenseCents;
 if ($isCurrentMonth && $budgetCents > 0) {
+    if ($entryDate !== null) {
+        $stmtMonth = $pdo->prepare('SELECT COALESCE(SUM(e.amount_cents), 0) FROM entries e INNER JOIN ledger_access la ON la.ledger_id = e.ledger_id AND la.user_id = :user_id WHERE e.ledger_id = :ledger_id AND e.deleted = 0 AND e.type = :entry_type AND e.entry_date BETWEEN :monthStart AND :monthEnd');
+        $stmtMonth->execute([
+            ':user_id' => $userId,
+            ':ledger_id' => $ledgerId,
+            ':entry_type' => 'expense',
+            ':monthStart' => $monthStart,
+            ':monthEnd' => $monthEnd,
+        ]);
+        $monthlyBudgetExpenseCents = (int) $stmtMonth->fetchColumn();
+    }
     // 整數交叉相乘判定，避免浮點誤差：≥100% 危險、≥80% 警告
-    if ($expenseCents * 100 >= $budgetCents * 100) {
+    if ($monthlyBudgetExpenseCents * 100 >= $budgetCents * 100) {
         $budgetStatus = 'danger';
-    } elseif ($expenseCents * 100 >= $budgetCents * 80) {
+    } elseif ($monthlyBudgetExpenseCents * 100 >= $budgetCents * 80) {
         $budgetStatus = 'warn';
     } else {
         $budgetStatus = 'ok';
     }
     $budgetProgress = [
-        'percent'   => (int) floor($expenseCents * 100 / $budgetCents), // 僅顯示用
+        'percent'   => (int) floor($monthlyBudgetExpenseCents * 100 / $budgetCents), // 僅顯示用
         'status'    => $budgetStatus,
-        'remaining' => $budgetCents - $expenseCents,
+        'remaining' => $budgetCents - $monthlyBudgetExpenseCents,
     ];
 }
 
@@ -647,8 +659,8 @@ if (!empty($_SESSION['voice_played'])) {
                 if ($budgetProgress !== null && in_array($budgetProgress['status'], ['warn', 'danger'], true)): ?>
                 <div class="budget-banner budget-banner-<?php echo h($budgetProgress['status']); ?>" role="alert">
                     <strong><?php echo h($ledger['name']); ?></strong> 本月預算已使用 <strong class="num"><?php echo h((string) $budgetProgress['percent']); ?>%</strong>：
-                    <?php echo $budgetProgress['status'] === 'danger' ? '已超過預算' : '接近預算上限'; ?>
-                    （預算 <?php echo h(formatCents($budgetCents)); ?> 元，已支出 <strong class="num"><?php echo h(formatCents($expenseCents)); ?></strong> 元）
+                    <?php echo $budgetProgress['status'] === 'danger' ? ($monthlyBudgetExpenseCents === $budgetCents ? '已達預算上限' : '已超過預算') : '接近預算上限'; ?>
+                    （預算 <?php echo h(formatCents($budgetCents)); ?> 元，已支出 <strong class="num"><?php echo h(formatCents($monthlyBudgetExpenseCents)); ?></strong> 元）
                 </div>
                 <?php endif; ?>
 
@@ -661,7 +673,7 @@ if (!empty($_SESSION['voice_played'])) {
                         <div class="budget-head">
                             <span class="budget-title">本月預算 <?php echo h(formatCents($budgetCents)); ?> 元</span>
                             <?php if ($budgetProgress['status'] === 'danger'): ?>
-                                <span class="budget-chip danger">已超過預算</span>
+                                <span class="budget-chip danger"><?php echo $monthlyBudgetExpenseCents === $budgetCents ? '已達預算上限' : '已超過預算'; ?></span>
                             <?php elseif ($budgetProgress['status'] === 'warn'): ?>
                                 <span class="budget-chip warn">接近預算上限</span>
                             <?php else: ?>
@@ -670,7 +682,7 @@ if (!empty($_SESSION['voice_played'])) {
                         </div>
                         <div class="budget-bar" aria-hidden="true"><span class="budget-fill" style="width: <?php echo h((string) $barWidth); ?>%;"></span></div>
                         <p class="budget-meta">
-                            已花費 <strong class="mono">-<?php echo h(formatCents($expenseCents)); ?></strong> 元 ·
+                            已花費 <strong class="mono">-<?php echo h(formatCents($monthlyBudgetExpenseCents)); ?></strong> 元 ·
                             用了 <strong class="mono"><?php echo h((string) $budgetProgress['percent']); ?>%</strong> ·
                             <?php if ($budgetRemain >= 0): ?>
                                 還剩 <strong class="mono"><?php echo h(formatCents($budgetRemain)); ?></strong> 元
@@ -679,14 +691,6 @@ if (!empty($_SESSION['voice_played'])) {
                             <?php endif; ?>
                         </p>
                     </div>
-                <?php endif; ?>
-
-                <?php if ($budgetProgress !== null && in_array($budgetProgress['status'], ['warn', 'danger'], true)): ?>
-                <div class="alert <?php echo $budgetProgress['status'] === 'danger' ? 'danger' : 'warn'; ?>" role="status">
-                    <?php echo h($ledger['name']); ?> 本月預算已使用
-                    <strong class="num"><?php echo h((string) $budgetProgress['percent']); ?>%</strong>：
-                    <?php echo $budgetProgress['status'] === 'danger' ? '已超過預算' : '接近預算上限'; ?>
-                </div>
                 <?php endif; ?>
 
                 <?php if ($accessRole === 'owner'): ?>

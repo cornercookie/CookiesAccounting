@@ -128,36 +128,6 @@ try {
                     <a class="btn primary" href="./ledgers.php">前往帳本</a>
                 </div>
 
-                <?php foreach ($ledgerSummaries as $ls): ?>
-                    <?php
-                    $lsBudget = (int) ($ls['monthly_budget_cents'] ?? 0);
-                    $lsBudgetStatus = null; // 'ok' | 'warn' | 'danger'
-                    $lsBudgetPercent = 0;
-                    if ($isCurrentMonth && $lsBudget > 0) {
-                        $lsMonthExpense = (int) ($ls['month_expense'] ?? 0);
-                        // 整數交叉相乘判定，避免浮點誤差（比照 ledger.php）：≥100% 危險、≥80% 警告
-                        if ($lsMonthExpense * 100 >= $lsBudget * 100) {
-                            $lsBudgetStatus = 'danger';
-                            $lsBudgetPercent = 100;
-                        } elseif ($lsMonthExpense * 100 >= $lsBudget * 80) {
-                            $lsBudgetStatus = 'warn';
-                            $lsBudgetPercent = (int) floor($lsMonthExpense * 100 / $lsBudget);
-                        } else {
-                            $lsBudgetStatus = 'ok';
-                        }
-                    }
-                    ?>
-                    <?php if ($lsBudgetStatus === 'warn' || $lsBudgetStatus === 'danger'): ?>
-                    <div class="alert <?php echo $lsBudgetStatus === 'danger' ? 'danger' : 'warn'; ?>" role="status">
-                        <?php echo h($ls['name']); ?> 本月預算已使用
-                        <strong class="num"><?php echo h((string) $lsBudgetPercent); ?>%</strong>：
-                        <?php echo $lsBudgetStatus === 'danger' ? '已超過預算' : '接近預算上限'; ?>
-                        （預算 <?php echo h(formatCents($lsBudget)); ?> 元，已支出
-                        <strong class="num"><?php echo h(formatCents((int) $ls['month_expense'])); ?></strong> 元）
-                    </div>
-                    <?php endif; ?>
-                <?php endforeach; ?>
-
                 <!-- 重複記錄登入提醒（Feature 11） -->
                 <?php
                 $recurringReminders = [];
@@ -219,10 +189,9 @@ try {
                     $lsBudget = (int) ($ls['monthly_budget_cents'] ?? 0);
                     if ($isCurrentMonth && $lsBudget > 0) {
                         $lsMonthExpense = (int) ($ls['month_expense'] ?? 0);
-                        if ($lsMonthExpense * 100 >= $lsBudget * 100) {
-                            $budgetBanners[] = ['name' => $ls['name'], 'status' => 'danger', 'percent' => 100, 'expense' => $lsMonthExpense, 'budget' => $lsBudget];
-                        } elseif ($lsMonthExpense * 100 >= $lsBudget * 80) {
-                            $budgetBanners[] = ['name' => $ls['name'], 'status' => 'warn', 'percent' => (int) floor($lsMonthExpense * 100 / $lsBudget), 'expense' => $lsMonthExpense, 'budget' => $lsBudget];
+                        $budgetStatus = calcBudgetStatus($lsMonthExpense, $lsBudget);
+                        if (in_array($budgetStatus, ['warn', 'danger'], true)) {
+                            $budgetBanners[] = ['name' => $ls['name'], 'status' => $budgetStatus, 'percent' => getBudgetPercent($lsMonthExpense, $lsBudget), 'expense' => $lsMonthExpense, 'budget' => $lsBudget];
                         }
                     }
                 }
@@ -230,7 +199,7 @@ try {
                 <?php foreach ($budgetBanners as $bb): ?>
                 <div class="budget-banner budget-banner-<?php echo h($bb['status']); ?>" role="alert">
                     <strong><?php echo h($bb['name']); ?></strong> 本月預算已使用 <strong class="num"><?php echo h((string) $bb['percent']); ?>%</strong>：
-                    <?php echo $bb['status'] === 'danger' ? '已超過預算' : '接近預算上限'; ?>
+                    <?php echo $bb['status'] === 'danger' ? ($bb['expense'] === $bb['budget'] ? '已達預算上限' : '已超過預算') : '接近預算上限'; ?>
                     （預算 <?php echo h(formatCents($bb['budget'])); ?> 元，已支出 <strong class="num"><?php echo h(formatCents($bb['expense'])); ?></strong> 元）
                 </div>
                 <?php endforeach; ?>
@@ -367,7 +336,7 @@ try {
                                         }
                                     ?>
                                     <tr>
-                                        <td><a class="ledger-link" href="./ledger.php?ledger_id=<?php echo h((string) $ls['id']); ?>"><strong><?php echo h($ls['name']); ?></strong></a><?php if ($lsBudgetChip !== ''): ?> <span class="budget-chip <?php echo h($lsBudgetChip); ?>"><?php echo $lsBudgetChip === 'danger' ? '已超支' : '近上限'; ?></span><?php endif; ?></td>
+                                        <td><a class="ledger-link" href="./ledger.php?ledger_id=<?php echo h((string) $ls['id']); ?>"><strong><?php echo h($ls['name']); ?></strong></a><?php if ($lsBudgetChip !== ''): ?> <span class="budget-chip <?php echo h($lsBudgetChip); ?>"><?php echo $lsBudgetChip === 'danger' && (int) $ls['month_expense'] === $lsBudget ? '已達預算上限' : ($lsBudgetChip === 'danger' ? '已超支' : '近上限'); ?></span><?php endif; ?></td>
                                         <td><span class="role-tag <?php echo h($ls['access_role']); ?>"><?php echo h($ls['access_role']); ?></span></td>
                                         <td class="num amt-in">+<?php echo h(formatCents((int) $ls['month_income'])); ?></td>
                                         <td class="num amt-out">-<?php echo h(formatCents((int) $ls['month_expense'])); ?></td>

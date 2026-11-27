@@ -51,20 +51,20 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
         }
     }
 
-    // 驗證雙帳本存取權限 + 角色權限（owner/member 才能配對，viewer 僅能檢視）
+    // 驗證雙帳本存取權限 + 角色權限：目前使用者必須在「兩筆記錄所屬的每一個帳本」
+    // 皆為 owner / member，且帳本均未封存（viewer 或封存帳本皆不可配對）
     $ledgerIds = array_unique(array_column($entries, 'ledger_id'));
-    $canPair = false;
     foreach ($ledgerIds as $lid) {
         $access = getLedgerWithAccess($pdo, (int) $lid, $userId);
         if ($access === false) {
             redirect('./transfer_pair.php?error=1&msg=' . urlencode('您沒有這兩筆記錄的存取權限。'));
         }
-        if (in_array($access['role'], ['owner', 'member'], true)) {
-            $canPair = true;
+        if ((int) ($access['archived'] ?? 0) === 1) {
+            redirect('./transfer_pair.php?error=1&msg=' . urlencode('封存帳本中的轉帳記錄無法配對。'));
         }
-    }
-    if (!$canPair) {
-        redirect('./transfer_pair.php?error=1&msg=' . urlencode('您的權限不足，無法執行配對操作（需為擁有者或成員）。'));
+        if (!in_array($access['role'], ['owner', 'member'], true)) {
+            redirect('./transfer_pair.php?error=1&msg=' . urlencode('您的權限不足，無法執行配對操作（需為擁有者或成員）。'));
+        }
     }
 
     // 驗證兩筆記錄來自不同帳本（跨帳本轉帳配對）

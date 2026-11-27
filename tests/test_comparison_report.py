@@ -13,11 +13,11 @@ class ComparisonReportCase(unittest.TestCase):
         f.AccountingTest.setUpClass()
 
     @staticmethod
-    def category_row(page):
+    def table_row(page, label):
         for row in re.findall(r'<tr[^>]*>(.*?)</tr>', page, re.DOTALL):
             cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.DOTALL)
             cells = [html.unescape(re.sub(r'<[^>]+>', '', c)).strip() for c in cells]
-            if cells and cells[0] == 'QA Comparison':
+            if cells and cells[0] == label:
                 return cells
         return None
 
@@ -48,7 +48,29 @@ class ComparisonReportCase(unittest.TestCase):
                 status, _, body = f.AccountingTest.request('/comparison_report.php?ledger_id=%d&mode=%s' % (lid, mode))
                 self.assertEqual(status, 200)
                 self.assertIn('<svg', body)
-                self.assertEqual(self.category_row(body), ['QA Comparison', '-80.00', '-50.00', '30.00', '60%'])
+                self.assertEqual(self.table_row(body, 'QA Comparison'), ['QA Comparison', '-80.00', '-50.00', '+30.00', '+60%'])
+
+    def test_comparison_report_signed_category_and_total_differences(self):
+        now = datetime.now(timezone(timedelta(hours=8)))
+        cur = now.replace(day=1).date()
+        prev = (cur - timedelta(days=1)).replace(day=1)
+        with f.AccountingTest.connect() as db:
+            uid = db.execute('SELECT user_id FROM entries WHERE id=1').fetchone()[0]
+            lid = db.execute('INSERT INTO ledgers(name,owner_id) VALUES(?,?)', ('signed-diff', uid)).lastrowid
+            db.execute('INSERT INTO ledger_access(ledger_id,user_id,role) VALUES(?,?,?)', (lid, uid, 'owner'))
+            db.executemany(
+                'INSERT INTO entries (ledger_id,user_id,amount_cents,type,category,entry_date,note) VALUES(?,?,?,?,?,?,?)',
+                [
+                    (lid, uid, 20600, 'expense', '餐費', cur.isoformat(), 'current'),
+                    (lid, uid, 10000, 'expense', '交通', cur.isoformat(), 'current'),
+                    (lid, uid, 20000, 'expense', '交通', prev.isoformat(), 'prior'),
+                ],
+            )
+        status, _, body = f.AccountingTest.request('/comparison_report.php?ledger_id=%d&mode=month' % lid)
+        self.assertEqual(status, 200)
+        self.assertEqual(self.table_row(body, '總計'), ['總計', '-306.00', '-200.00', '+106.00', '+53%'])
+        self.assertEqual(self.table_row(body, '交通'), ['交通', '-100.00', '-200.00', '-100.00', '-50%'])
+        self.assertNotIn('494', body)
 
     def test_comparison_chart_contains_all_category_bars(self):
         now = datetime.now(timezone(timedelta(hours=8)))

@@ -44,9 +44,11 @@ $memberStmt->execute([':ledger_id' => $ledgerId]);
 $members = $memberStmt->fetchAll();
 
 // GET 參數處理：預選幣別、預填金額/匯率/日期/類型（T-01 / Security S-01, S-02）
+// 陣列型參數（如 amount[]=x）以 inputString() 防禦，避免流入字串型別函數造成 TypeError
 $initialCurrency = 'TWD';
-if (isset($_GET['currency']) && isSupportedCurrency($_GET['currency'])) {
-    $initialCurrency = $_GET['currency'];
+$currencyParam = inputString($_GET, 'currency');
+if ($currencyParam !== '' && isSupportedCurrency($currencyParam)) {
+    $initialCurrency = $currencyParam;
 }
 
 // 表單預填變數（GET 參數經 h() 轉義後輸出，所有模式皆可預填）
@@ -55,10 +57,14 @@ $prefillRate = '';
 $prefillDate = '';
 $prefillType = '';
 
-$prefillAmount = isset($_GET['amount']) ? h($_GET['amount']) : '';
-$prefillRate = isset($_GET['rate']) ? h($_GET['rate']) : (isset($_GET['exchange_rate']) ? h($_GET['exchange_rate']) : '');
-$prefillDateRaw = isset($_GET['entry_date']) ? $_GET['entry_date'] : '';
-$prefillTypeRaw = isset($_GET['type']) ? $_GET['type'] : '';
+$prefillAmount = isset($_GET['amount']) ? h(inputString($_GET, 'amount')) : '';
+if (isset($_GET['rate'])) {
+    $prefillRate = h(inputString($_GET, 'rate'));
+} elseif (isset($_GET['exchange_rate'])) {
+    $prefillRate = h(inputString($_GET, 'exchange_rate'));
+}
+$prefillDateRaw = inputString($_GET, 'entry_date');
+$prefillTypeRaw = inputString($_GET, 'type');
 
 // 入口參數驗證（後端契約）：非法日期、非法類型不予預填，落回預設值
 if ($prefillDateRaw !== '' && !isValidDate($prefillDateRaw)) {
@@ -81,23 +87,23 @@ $amount    = $prefillAmount;
 $error     = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!checkCsrf($_POST['csrf_token'] ?? '')) {
+    if (!checkCsrf(inputString($_POST, 'csrf_token'))) {
         $error = '請求驗證失敗，請重新提交表單。';
     } elseif (!$canWrite) {
         $error = '您的身份為檢視者，無法新增記錄。';
     } else {
-        $amount    = trim($_POST['amount'] ?? '');
-        $entryDate = trim($_POST['entry_date'] ?? '');
-        $categoryPreset = trim($_POST['category_preset'] ?? '');
+        $amount    = inputString($_POST, 'amount');
+        $entryDate = inputString($_POST, 'entry_date');
+        $categoryPreset = inputString($_POST, 'category_preset');
         if ($categoryPreset !== '' && $categoryPreset !== '__custom__') {
             $category = $categoryPreset;
         } else {
-            $category = trim($_POST['category'] ?? '');
+            $category = inputString($_POST, 'category');
         }
-        $note      = trim($_POST['note'] ?? '');
+        $note      = inputString($_POST, 'note');
         $type      = $_POST['type'] ?? '';
-        $currency  = trim($_POST['currency'] ?? 'TWD');
-        $exchangeRate = trim($_POST['exchange_rate'] ?? '1.0000');
+        $currency  = inputString($_POST, 'currency', 'TWD');
+        $exchangeRate = inputString($_POST, 'exchange_rate', '1.0000');
 
         // 後端二次驗證【後端必驗】
         if (!isSupportedCurrency($currency)) {
@@ -354,17 +360,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             <div class="field field-full">
                                 <label for="category" class="label">類別</label>
+                                <?php $presetCategories = defaultEntryCategories(); ?>
                                 <select name="category_preset" id="category_preset" class="select">
                                     <option value=""<?php echo $category === '' ? ' selected' : ''; ?>>選擇常用分類</option>
-                                    <option value="餐費"<?php echo $category === '餐費' ? ' selected' : ''; ?>>餐費</option>
-                                    <option value="交通"<?php echo $category === '交通' ? ' selected' : ''; ?>>交通</option>
-                                    <option value="娛樂"<?php echo $category === '娛樂' ? ' selected' : ''; ?>>娛樂</option>
-                                    <option value="醫療"<?php echo $category === '醫療' ? ' selected' : ''; ?>>醫療</option>
-                                    <option value="薪資"<?php echo $category === '薪資' ? ' selected' : ''; ?>>薪資</option>
-                                    <option value="水電瓦斯"<?php echo $category === '水電瓦斯' ? ' selected' : ''; ?>>水電瓦斯</option>
-                                    <option value="日用品"<?php echo $category === '日用品' ? ' selected' : ''; ?>>日用品</option>
-                                    <option value="其他"<?php echo $category === '其他' ? ' selected' : ''; ?>>其他</option>
-                                    <option value="__custom__"<?php echo !in_array($category, ['', '餐費', '交通', '娛樂', '醫療', '薪資', '水電瓦斯', '日用品', '其他'], true) ? ' selected' : ''; ?>>自訂分類</option>
+                                    <?php foreach ($presetCategories as $presetCategory): ?>
+                                        <option value="<?php echo h($presetCategory); ?>"<?php echo $category === $presetCategory ? ' selected' : ''; ?>><?php echo h($presetCategory); ?></option>
+                                    <?php endforeach; ?>
+                                    <option value="__custom__"<?php echo !in_array($category, array_merge([''], $presetCategories), true) ? ' selected' : ''; ?>>自訂分類</option>
                                 </select>
                                 <input type="text" name="category" id="category" required class="input" value="<?php echo h($category); ?>" placeholder="例如 餐費、薪資" autocomplete="off">
                                 <p class="meta" style="margin-top: var(--space-2);">可從常用分類選擇，或自行輸入分類（最多 50 字元）。</p>

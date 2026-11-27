@@ -40,6 +40,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && !$isOwner) {
 // 審計日誌：檢視類別預算頁面（GET）
 logAudit('category_budget_view', 'ledger_id=' . $ledgerId . ' user_id=' . $userId);
 
+$categories = ledgerBudgetCategories($pdo, (int) $ledgerId);
+
 // POST 處理：新增/編輯/停用
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -131,11 +133,6 @@ $budgetStmt = $pdo->prepare('
 $budgetStmt->execute([':ledger_id' => $ledgerId]);
 $budgets = $budgetStmt->fetchAll();
 
-// 查詢全站啟用中的分類（供 select 選項；參考 categories 表）
-$catStmt = $pdo->prepare('SELECT name FROM categories WHERE is_active = 1 ORDER BY name');
-$catStmt->execute();
-$categories = $catStmt->fetchAll(PDO::FETCH_COLUMN);
-
 // 編輯模式：若有 edit_id 參數，預填表單
 $editBudget = null;
 $editIdRaw = $_GET['edit_id'] ?? null;
@@ -226,12 +223,12 @@ if ($editId !== false && $editId !== null) {
                                     <input type="hidden" name="category" value="<?php echo h($editBudget['category']); ?>">
                                     <p class="meta">編輯模式下類別不可變更，請停用後重新新增。</p>
                                 <?php else: ?>
-                                    <select name="category" id="category" class="select" required>
-                                        <option value="">請選擇類別</option>
+                                    <input type="text" name="category" id="category" class="input" required maxlength="50" list="category-suggestions" autocomplete="off" placeholder="輸入或選擇類別">
+                                    <datalist id="category-suggestions">
                                         <?php foreach ($categories as $cat): ?>
-                                            <option value="<?php echo h($cat); ?>"><?php echo h($cat); ?></option>
+                                            <option value="<?php echo h($cat); ?>">
                                         <?php endforeach; ?>
-                                    </select>
+                                    </datalist>
                                 <?php endif; ?>
                             </div>
                             <div class="field field-full">

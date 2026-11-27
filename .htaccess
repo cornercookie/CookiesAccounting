@@ -12,3 +12,14 @@ Options -Indexes
         Deny from all
     </Files>
 </IfModule>
+
+# [#34-A] 封鎖內部目錄與原始碼／資料檔的直接 HTTP 存取（防原始碼與資料外洩）
+RedirectMatch 404 (?i)/(\.git|tests|docs|Agents|historical|\.codex|\.cursor|\.gemini|\.impeccable)(/|$)
+<FilesMatch "(?i)(^\.|\.(md|py|cjs|txt|log|sqlite|db|example)$)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Deny from all
+    </IfModule>
+</FilesMatch>

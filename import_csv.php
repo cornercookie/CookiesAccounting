@@ -110,8 +110,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                                 // CSV 公式注入防護前綴字元（同 export_csv.php）
                                 $formulaPrefixes = ['=', '+', '-', '@', "\t", "\r"];
+                                $stmtUser = $pdo->prepare('
+                                    SELECT u.id
+                                    FROM users u
+                                    INNER JOIN ledger_access la ON la.user_id = u.id AND la.ledger_id = :ledger_id
+                                    WHERE u.username = :username
+                                    LIMIT 1
+                                ');
+                                $stmtInsert = $pdo->prepare('
+                                    INSERT INTO entries
+                                        (ledger_id, user_id, amount_cents, type, category, entry_date, note, receipt_path, deleted, recurring_source_id,
+                                         currency, exchange_rate, original_amount_cents)
+                                    VALUES
+                                        (:ledger_id, :user_id, :amount_cents, :type, :category, :entry_date, :note, \'\', 0, NULL,
+                                         :currency, :exchange_rate, :original_amount_cents)
+                                ');
 
-                                while (($row = fgetcsv($handle)) !== false) {
+                                $transactionFailed = false;
+                                try {
+                                    $pdo->beginTransaction();
+                                    while (($row = fgetcsv($handle)) !== false) {
                                     $lineNum++;
 
                                     // 最大資料列數限制（不含標題行），防禦超大檔 DoS
@@ -142,28 +160,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         $bomRemoved = true;
                                     }
 
-                                    // 欄位數量驗證：標準 6 欄位（日期、類型、金額、分類、記錄者、備註）
-                                    // 不足 6 欄位補空字串，超過 6 欄位截斷並記錄警告（不計入失敗筆數）
-                                    $fieldCount = count($row);
-                                    if ($fieldCount < 6) {
-                                        $row = array_pad($row, 6, '');
-                                        if (count($warnings) < 100) {
-                                            $warnings[] = '第 ' . $lineNum . ' 行：欄位不足 6 個（已自動補空）';
-                                        }
-                                    } elseif ($fieldCount > 6) {
-                                        $row = array_slice($row, 0, 6);
-                                        if (count($warnings) < 100) {
-                                            $warnings[] = '第 ' . $lineNum . ' 行：欄位超過 6 個（已截斷多餘欄位）';
+                                    // 還原匯出時加上的 CSV 公式注入防護前綴
+                                    foreach ($row as &$cell) {
+                                        if (isset($cell[0], $cell[1]) && $cell[0] === "'" && in_array($cell[1], $formulaPrefixes, true)) {
+                                            $cell = substr($cell, 1);
                                         }
                                     }
+                                    unset($cell);
 
-                                    // 取得欄位
-                                    $dateStr   = trim((string) ($row[0] ?? ''));
-                                    $typeStr   = trim((string) ($row[1] ?? ''));
-                                    $amountStr = trim((string) ($row[2] ?? ''));
-                                    $category  = trim((string) ($row[3] ?? ''));
-                                    $recorder  = trim((string) ($row[4] ?? ''));
-                                    $note      = trim((string) ($row[5] ?? ''));
+                                    $isExportLayout = count($row) >= 9;
+                                    $currency = 'TWD';
+                                    $exchangeRate = 10000;
+                                    $originalAmountCents = 0;
+                                    $originalAmountStr = '';
+                                    $exchangeRateStr = '';
+                                    if ($isExportLayout) {
+                                        // 匯出格式：日期、類型、原幣別、原幣金額、匯率、台幣金額、分類、記錄者、備註
+                                        $dateStr          = trim((string) ($row[0] ?? ''));
+                                        $typeStr          = trim((string) ($row[1] ?? ''));
+                                        $currency         = strtoupper(trim((string) ($row[2] ?? '')));
+                                        if ($currency === '') {
+                                            $currency = 'TWD';
+                                        }
+                                        $originalAmountStr = trim((string) ($row[3] ?? ''));
+                                        $exchangeRateStr  = trim((string) ($row[4] ?? ''));
+                                        $amountStr        = trim((string) ($row[5] ?? ''));
+                                        $category         = trim((string) ($row[6] ?? ''));
+                                        $recorder         = trim((string) ($row[7] ?? ''));
+                                        $note             = trim((string) ($row[8] ?? ''));
+                                    } else {
+                                        // 舊版 6 欄位不足補空字串，超過截斷並記錄警告
+                                        $fieldCount = count($row);
+                                        if ($fieldCount < 6) {
+                                            $row = array_pad($row, 6, '');
+                                            if (count($warnings) < 100) {
+                                                $warnings[] = '第 ' . $lineNum . ' 行：欄位不足 6 個（已自動補空）';
+                                            }
+                                        } elseif ($fieldCount > 6) {
+                                            $row = array_slice($row, 0, 6);
+                                            if (count($warnings) < 100) {
+                                                $warnings[] = '第 ' . $lineNum . ' 行：欄位超過 6 個（已截斷多餘欄位）';
+                                            }
+                                        }
+
+                                        $dateStr   = trim((string) ($row[0] ?? ''));
+                                        $typeStr   = trim((string) ($row[1] ?? ''));
+                                        $amountStr = trim((string) ($row[2] ?? ''));
+                                        $category  = trim((string) ($row[3] ?? ''));
+                                        $recorder  = trim((string) ($row[4] ?? ''));
+                                        $note      = trim((string) ($row[5] ?? ''));
+                                    }
 
                                     // 逐行驗證
                                     $rowError = '';
@@ -177,47 +223,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         $rowError = '類型不正確（需為 收入、支出、轉帳）';
                                     }
 
-                                    // 金額格式（toCents，不得為負數）
+                                    if ($rowError === '' && !isSupportedCurrency($currency)) {
+                                        $rowError = '不支援的幣別。';
+                                    }
+
+                                    // 金額格式（接受匯出值的千分位，不得為負數或零）
                                     $cents = 0;
                                     if ($rowError === '') {
-                                        $cents = toCents($amountStr);
+                                        $cents = toCents(str_replace(',', '', $amountStr));
                                         if ($cents === false) {
                                             $rowError = '金額格式不正確（請使用整數或至多小數點後兩位，例如 100 或 100.50）';
                                         } elseif ($cents < 0) {
                                             $rowError = '金額不得為負數';
+                                        } elseif ($cents === 0) {
+                                            $rowError = '金額必須大於 0';
                                         }
                                     }
 
-                                    // 分類長度（≤50 字元）+ CSV 公式注入防護
+                                    // 台幣與舊版格式固定使用原幣等值及 1.0000 匯率
+                                    if ($rowError === '') {
+                                        $originalAmountCents = $cents;
+                                        if ($isExportLayout && $currency !== 'TWD') {
+                                            $originalAmountCents = toCents((string) preg_replace(
+                                                '/^[^0-9.]*/',
+                                                '',
+                                                str_replace(',', '', $originalAmountStr)
+                                            ));
+                                            if ($originalAmountCents === false) {
+                                                $rowError = '原幣金額格式不正確（請使用整數或至多小數點後兩位）';
+                                            } else {
+                                                $exchangeRate = parseExchangeRateBasisPoints($exchangeRateStr);
+                                                if ($exchangeRate === false || !isValidExchangeRateBasisPoints($exchangeRate)) {
+                                                    $rowError = '匯率格式不正確或超出範圍（0.0001 ~ 10000）。';
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // 分類長度（≤50 字元）
                                     if ($rowError === '') {
                                         if ($category === '') {
                                             $rowError = '分類不得為空';
                                         } elseif (mb_strlen($category, 'UTF-8') > 50) {
                                             $rowError = '分類長度超過 50 字元限制';
-                                        } else {
-                                            // CSV 公式注入防護：開頭為 =,+,-,@,\t,\r 者前綴單引號
-                                            if ($category !== '' && in_array($category[0], $formulaPrefixes, true)) {
-                                                $category = "'" . $category;
-                                            }
                                         }
                                     }
 
-                                    // 備註：CSV 公式注入防護
-                                    if ($rowError === '' && $note !== '' && strlen($note) > 0 && in_array($note[0], $formulaPrefixes, true)) {
-                                        $note = "'" . $note;
-                                    }
-
-                                    // 記錄者：CSV 公式注入防護（雖然寫入 user_id 為整數，但為一致性仍處理）
-                                    if ($rowError === '' && $recorder !== '' && strlen($recorder) > 0 && in_array($recorder[0], $formulaPrefixes, true)) {
-                                        $recorder = "'" . $recorder;
-                                    }
-
-                                    // 記錄者驗證：若提供則查詢 users 表驗證存在性；不存在或空值 → 使用目前登入使用者
+                                    // 記錄者必須有此帳本存取權；不存在、無權或空值 → 使用目前登入使用者
                                     $entryUserId = $userId; // 預設為登入使用者
                                     if ($rowError === '') {
                                         if ($recorder !== '') {
-                                            $stmtUser = $pdo->prepare('SELECT id FROM users WHERE username = :username LIMIT 1');
-                                            $stmtUser->execute([':username' => $recorder]);
+                                            $stmtUser->execute([':username' => $recorder, ':ledger_id' => $ledgerId]);
                                             $userRow = $stmtUser->fetch();
                                             if ($userRow !== false) {
                                                 $entryUserId = (int) $userRow['id'];
@@ -249,42 +305,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         '轉帳'    => 'transfer',
                                     };
 
-                                    // 記錄者欄位也做公式注入防護（寫入 note 欄位時已處理，這裡為完整性）
-                                    // 寫入 entries 表（PDO 預備陳述式，具名佔位符，含所有欄位）
-                                    $stmt = $pdo->prepare('
-                                        INSERT INTO entries
-                                            (ledger_id, user_id, amount_cents, type, category, entry_date, note, receipt_path, deleted, recurring_source_id)
-                                        VALUES
-                                            (:ledger_id, :user_id, :amount_cents, :type, :category, :entry_date, :note, \'\', 0, NULL)
-                                    ');
-                                    $stmt->execute([
-                                        ':ledger_id'         => $ledgerId,
-                                        ':user_id'           => $entryUserId,
-                                        ':amount_cents'      => $cents,
-                                        ':type'              => $typeDb,
-                                        ':category'          => $category,
-                                        ':entry_date'        => $dateStr,
-                                        ':note'              => $note,
+                                    // 寫入 entries 表（含多幣別欄位）
+                                    $stmtInsert->execute([
+                                        ':ledger_id'             => $ledgerId,
+                                        ':user_id'               => $entryUserId,
+                                        ':amount_cents'          => $cents,
+                                        ':type'                  => $typeDb,
+                                        ':category'              => $category,
+                                        ':entry_date'            => $dateStr,
+                                        ':note'                  => $note,
+                                        ':currency'              => $currency,
+                                        ':exchange_rate'         => $exchangeRate,
+                                        ':original_amount_cents' => $originalAmountCents,
                                     ]);
                                     $successCount++;
+                                    }
+                                    $pdo->commit();
+                                } catch (Throwable $e) {
+                                    $transactionFailed = true;
+                                    if ($pdo->inTransaction()) {
+                                        $pdo->rollBack();
+                                    }
+                                    logError('csv_import_failed: ' . $e->getMessage());
+                                    $error = '匯入失敗，請稍後再試。';
                                 }
 
                                 fclose($handle);
 
-                                // 記錄 audit_log（匯入成功與失敗筆數）
-                                logAudit('csv_import', 'ledger_id=' . $ledgerId . ' success=' . $successCount . ' failed=' . $failedCount);
+                                if (!$transactionFailed) {
+                                    // 記錄 audit_log（匯入成功與失敗筆數）
+                                    logAudit('csv_import', 'ledger_id=' . $ledgerId . ' success=' . $successCount . ' failed=' . $failedCount);
 
-                                $importResult = [
-                                    'success'   => $successCount,
-                                    'failed'    => $failedCount,
-                                    'errors'    => $errors,
-                                    'warnings'  => $warnings,
-                                ];
+                                    $importResult = [
+                                        'success'   => $successCount,
+                                        'failed'    => $failedCount,
+                                        'errors'    => $errors,
+                                        'warnings'  => $warnings,
+                                    ];
 
-                                if ($failedCount === 0) {
-                                    $success = '匯入完成：共 ' . $successCount . ' 筆記錄已成功匯入。';
-                                } else {
-                                    $success = '匯入完成：成功 ' . $successCount . ' 筆，失敗 ' . $failedCount . ' 筆。';
+                                    if ($failedCount === 0) {
+                                        $success = '匯入完成：共 ' . $successCount . ' 筆記錄已成功匯入。';
+                                    } else {
+                                        $success = '匯入完成：成功 ' . $successCount . ' 筆，失敗 ' . $failedCount . ' 筆。';
+                                    }
                                 }
                             }
                         }

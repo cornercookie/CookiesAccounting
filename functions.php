@@ -15,6 +15,27 @@ function h(string $s): string
 }
 
 /**
+ * 安全取得字串輸入參數。
+ *
+ * 從 $_GET / $_POST 等來源陣列讀取指定鍵值；值不存在或非字串時回傳 $default，
+ * 否則回傳去除首尾空白後的字串。query string 的 entry_date[]=x 會被 PHP 解析
+ * 成陣列，若直接流入字串型別參數（isValidDate()、trim()、toCents()、h() 等）
+ * 會造成 TypeError（HTTP 500），本函數統一在讀取端防禦。
+ *
+ * @param array $src 來源陣列（$_GET 或 $_POST）
+ * @param string $key 參數名稱
+ * @param string $default 值不存在或非字串時回傳的預設值
+ * @return string 去除首尾空白後的字串
+ */
+function inputString(array $src, string $key, string $default = ''): string
+{
+    if (!isset($src[$key]) || !is_string($src[$key])) {
+        return $default;
+    }
+    return trim($src[$key]);
+}
+
+/**
  * 導向相對網址（./ 開頭），讓應用程式可部署於任意子目錄。
  * 呼叫後務必 exit()。
  */
@@ -47,8 +68,13 @@ function requireLogin(): void
  * 若使用者的密碼在 Session 建立之後已被變更（password_changed_at > authed_at），
  * 則使既有 Session 失效並導向登入頁，防止已竊取的 Session 在密碼重設後仍可存取系統。
  *
+ * 若 Session 對應的使用者已不存在（帳號遭刪除），同樣銷毀 Session 並導向登入頁。
+ *
  * 若 Session 超過閒置閾值（預設 30 分鐘）未有任何活動，也會導向登入頁，
  * 避免共享電腦上遺留的已登入 Session 被他人濫用。
+ *
+ * 每次呼叫都會以 users.role 刷新 $_SESSION['role']，確保 requireAdmin()
+ * 使用資料庫中的最新角色（管理員被降級後舊 Session 立即失去後台權限）。
  */
 function requireSessionFresh(): void
 {
@@ -76,12 +102,20 @@ function requireSessionFresh(): void
     $_SESSION['last_activity'] = time();
 
     $pdo = getPdo();
-    $stmt = $pdo->prepare('SELECT password_changed_at FROM users WHERE id = :id LIMIT 1');
+    $stmt = $pdo->prepare('SELECT password_changed_at, role FROM users WHERE id = :id LIMIT 1');
     $stmt->execute([':id' => $userId]);
     $row = $stmt->fetch();
     if ($row === false) {
-        return;
+        // 使用者已不存在（帳號遭刪除），銷毀 Session（與閒置逾時分支相同處理）
+        $_SESSION = [];
+        if (isset($_COOKIE[session_name()])) {
+            setcookie(session_name(), '', time() - 42000, '/');
+        }
+        session_destroy();
+        redirect('./login.php');
     }
+    // 以資料庫角色刷新 Session 角色，讓 requireAdmin() 依最新權限判斷
+    $_SESSION['role'] = (string) ($row['role'] ?? '');
     $passwordChangedAt = (string) ($row['password_changed_at'] ?? '');
     if ($passwordChangedAt === '') {
         return; // 從未變更過密碼，不強制失效
@@ -241,7 +275,9 @@ function convertToTwdCents(int $foreignCents, int $rateBasisPoints): int
     if ($product > PHP_INT_MAX || $product < -PHP_INT_MAX) {
         throw new ValueError('換算結果超出整數範圍：foreignCents=' . $foreignCents . ' rateBasisPoints=' . $rateBasisPoints);
     }
-    return (int) (($product + 5000) / 10000); // 四捨五入（+5000 相當於 /10000 後的 0.5）
+    // 整數除法（intdiv）：與 (int)(($product + 5000) / 10000) 同為向零取整，
+    // 但不經過 FLOAT，避免大數失去精度
+    return intdiv($product + 5000, 10000); // 四捨五入（+5000 相當於 /10000 後的 0.5）
 }
 
 /**
@@ -553,6 +589,43 @@ function getBudgetPercent(int $expenseCents, int $budgetCents): int
 }
 
 /**
+ * 內建常用分類預設清單（單一來源）。
+ *
+ * add_entry.php / edit_entry.php 的「常用分類」下拉選單與
+ * category_budget.php 的類別選項聯集皆使用本清單，避免多處硬編碼漂移。
+ * @return string[] 預設分類名稱陣列（依固定順序）
+ */
+function defaultEntryCategories(): array
+{
+    return ['餐費', '交通', '娛樂', '醫療', '薪資', '水電瓦斯', '日用品', '其他'];
+}
+
+/**
+ * 取得類別預算可選分類：預設、全站啟用分類與本帳本已使用分類的去重聯集。
+ * @return string[]
+ */
+function ledgerBudgetCategories(PDO $pdo, int $ledgerId): array
+{
+    $categories = defaultEntryCategories();
+
+    $stmt = $pdo->prepare('SELECT name FROM categories WHERE is_active = 1 ORDER BY name');
+    $stmt->execute();
+    $activeCategories = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+    $stmt = $pdo->prepare("SELECT DISTINCT category FROM entries WHERE ledger_id = :ledger_id AND deleted = 0 AND category <> '' ORDER BY category");
+    $stmt->execute([':ledger_id' => $ledgerId]);
+    $entryCategories = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+    foreach (array_merge($activeCategories, $entryCategories) as $category) {
+        if (!in_array($category, $categories, true)) {
+            $categories[] = $category;
+        }
+    }
+
+    return $categories;
+}
+
+/**
  * 驗證使用者對帳本的存取權限並回傳帳本資料。
  *
  * @param PDO $pdo
@@ -712,6 +785,12 @@ function handleReceiptUpload(): string|false
     }
 
     // MIME Type 檢查（finfo_file，不依賴 extension）
+    // fileinfo 擴充未啟用時不得呼叫 finfo_open()（會 Fatal Error 造成 HTTP 500），
+    // 改走既有的錯誤路徑回傳 false，由呼叫端顯示上傳失敗訊息（同 import_csv.php 的防禦）
+    if (!function_exists('finfo_open')) {
+        logError('receipt upload: 主機未啟用 fileinfo 擴充，無法上傳收據。');
+        return false;
+    }
     $finfo = finfo_open(FILEINFO_MIME_TYPE);
     if ($finfo === false) {
         logError('receipt upload: finfo_open failed (fileinfo extension unavailable)');

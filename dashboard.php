@@ -131,37 +131,32 @@ try {
                 <!-- 重複記錄登入提醒（Feature 11） -->
                 <?php
                 $recurringReminders = [];
-                foreach ($ledgerSummaries as $ls) {
-                    $recStmt = $pdo->prepare('
-                        SELECT re.id, re.name, re.amount_cents, re.type, re.category, re.next_due_date
+                if ($ledgerSummaries) {
+                    $ledgerNames = [];
+                    $lidParams = [];
+                    foreach ($ledgerSummaries as $i => $ls) {
+                        $ledgerNames[(int) $ls['id']] = $ls['name'];
+                        $lidParams[":lid$i"] = (int) $ls['id'];
+                    }
+                    $placeholders = implode(',', array_keys($lidParams));
+                    $recStmt = $pdo->prepare("
+                        SELECT re.id, re.ledger_id, re.name, re.amount_cents, re.type, re.category, re.next_due_date
                         FROM recurring_entries re
-                        WHERE re.ledger_id = :ledger_id
-                          AND re.is_active = 1
-                    ');
-                    $recStmt->execute([':ledger_id' => (int) $ls['id']]);
+                        WHERE re.is_active = 1 AND re.ledger_id IN ($placeholders)
+                          AND NOT EXISTS (SELECT 1 FROM entries e WHERE e.recurring_source_id = re.id AND e.deleted = 0 AND e.entry_date BETWEEN :ms AND :me)
+                        ORDER BY re.ledger_id, re.id
+                    ");
+                    $recStmt->execute(array_merge($lidParams, [':ms' => $monthStart, ':me' => $monthEnd]));
                     while ($rec = $recStmt->fetch()) {
-                        // 檢查本月是否已有來源自該重複記錄的 entries
-                        $genStmt = $pdo->prepare('
-                            SELECT COUNT(*) AS cnt FROM entries
-                            WHERE recurring_source_id = :recurring_id
-                              AND entry_date BETWEEN :ms AND :me
-                        ');
-                        $genStmt->execute([
-                            ':recurring_id' => (int) $rec['id'],
-                            ':ms' => $monthStart,
-                            ':me' => $monthEnd,
-                        ]);
-                        $genRow = $genStmt->fetch();
-                        if ($genRow === false || (int) $genRow['cnt'] === 0) {
-                            $recurringReminders[] = [
-                                'ledger_name' => $ls['name'],
-                                'recurring_name' => $rec['name'],
-                                'amount_cents' => (int) $rec['amount_cents'],
-                                'type' => $rec['type'],
-                                'next_due_date' => $rec['next_due_date'],
-                                'ledger_id' => (int) $ls['id'],
-                            ];
-                        }
+                        $ledgerId = (int) $rec['ledger_id'];
+                        $recurringReminders[] = [
+                            'ledger_name' => $ledgerNames[$ledgerId],
+                            'recurring_name' => $rec['name'],
+                            'amount_cents' => (int) $rec['amount_cents'],
+                            'type' => $rec['type'],
+                            'next_due_date' => $rec['next_due_date'],
+                            'ledger_id' => $ledgerId,
+                        ];
                     }
                 }
                 ?>
@@ -375,21 +370,23 @@ try {
                             </tr>
                         </thead>
                         <tbody>
+                            <?php
+                            $memberStmt = $pdo->prepare('
+                                SELECT u.username, COALESCE(COUNT(e.id), 0) AS entry_count
+                                FROM ledger_access la
+                                INNER JOIN users u ON u.id = la.user_id
+                                LEFT JOIN entries e
+                                    ON e.ledger_id = la.ledger_id
+                                   AND e.user_id = la.user_id
+                                   AND e.deleted = 0
+                                   AND e.entry_date BETWEEN :ms AND :me
+                                WHERE la.ledger_id = :ledger_id
+                                GROUP BY u.id, u.username
+                                ORDER BY u.username
+                            ');
+                            ?>
                             <?php foreach ($ledgerSummaries as $ls): ?>
                                 <?php
-                                $memberStmt = $pdo->prepare('
-                                    SELECT u.username, COALESCE(COUNT(e.id), 0) AS entry_count
-                                    FROM ledger_access la
-                                    INNER JOIN users u ON u.id = la.user_id
-                                    LEFT JOIN entries e
-                                        ON e.ledger_id = la.ledger_id
-                                       AND e.user_id = la.user_id
-                                       AND e.deleted = 0
-                                       AND e.entry_date BETWEEN :ms AND :me
-                                    WHERE la.ledger_id = :ledger_id
-                                    GROUP BY u.id, u.username
-                                    ORDER BY u.username
-                                ');
                                 $memberStmt->execute([
                                     ':ledger_id' => (int) $ls['id'],
                                     ':ms' => $monthStart,

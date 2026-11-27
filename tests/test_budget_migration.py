@@ -50,6 +50,7 @@ class BudgetMigrationCase(unittest.TestCase):
         # --- setup database: synthetic category, index replacement, data preservation ---
         with A.connect() as db:
             db.execute('INSERT INTO categories(name,is_active) VALUES(?,1)', (CAT,))
+            db.execute('PRAGMA user_version = 0')
             db.execute('DROP INDEX uq_category_budgets_active_only')
             db.execute('CREATE UNIQUE INDEX uq_category_budgets_ledger_category_active ON category_budgets(ledger_id,category,is_active)')
             db.executemany(INSERT, [(CAT, 321, 0), (CAT, 654, 1)])

@@ -78,12 +78,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
     if ($accessRole !== 'owner' && $accessRole !== 'admin') {
         redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('僅帳本擁有者或管理員可建立重複記錄。'));
     }
-    $name      = trim($_POST['name'] ?? '');
-    $amountRaw = trim($_POST['amount'] ?? '');
-    $category  = trim($_POST['category'] ?? '');
-    $type      = $_POST['type'] ?? '';
-    $startDate = trim($_POST['start_date'] ?? '');
-    $nextDue   = trim($_POST['next_due_date'] ?? '');
+    $name      = inputString($_POST, 'name');
+    $amountRaw = inputString($_POST, 'amount');
+    $category  = inputString($_POST, 'category');
+    $type      = inputString($_POST, 'type');
+    $startDate = inputString($_POST, 'start_date');
+    $nextDue   = inputString($_POST, 'next_due_date');
 
     if ($name === '') {
         redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('請輸入重複記錄名稱。'));
@@ -128,6 +128,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
     if (!checkCsrf(is_string($_POST['csrf_token'] ?? '') ? $_POST['csrf_token'] : '')) {
         redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('安全驗證失敗，請重新操作。'));
     }
+    // 檢視者（viewer）不得編輯；帳本已封存時開頭的檢查早已導向，不會執行到此
+    if ($accessRole === 'viewer') {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('您沒有權限編輯重複記錄。'));
+    }
     $recurringId = filter_var($_POST['recurring_id'] ?? '', FILTER_VALIDATE_INT);
     if ($recurringId === false || $recurringId === null) {
         redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('無效的重複記錄編號。'));
@@ -144,12 +148,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
         redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('僅建立者或帳本擁有者可編輯重複記錄。'));
     }
 
-    $name      = trim($_POST['name'] ?? '');
-    $amountRaw = trim($_POST['amount'] ?? '');
-    $category  = trim($_POST['category'] ?? '');
-    $type      = $_POST['type'] ?? '';
-    $startDate = trim($_POST['start_date'] ?? '');
-    $nextDue   = trim($_POST['next_due_date'] ?? '');
+    $name      = inputString($_POST, 'name');
+    $amountRaw = inputString($_POST, 'amount');
+    $category  = inputString($_POST, 'category');
+    $type      = inputString($_POST, 'type');
+    $startDate = inputString($_POST, 'start_date');
+    $nextDue   = inputString($_POST, 'next_due_date');
 
     if ($name === '') {
         redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('請輸入重複記錄名稱。'));
@@ -193,6 +197,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
     if (!checkCsrf(is_string($_POST['csrf_token'] ?? '') ? $_POST['csrf_token'] : '')) {
         redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('安全驗證失敗，請重新操作。'));
     }
+    // 檢視者（viewer）不得停用；帳本已封存時開頭的檢查早已導向，不會執行到此
+    if ($accessRole === 'viewer') {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('您沒有權限停用重複記錄。'));
+    }
     $recurringId = filter_var($_POST['recurring_id'] ?? '', FILTER_VALIDATE_INT);
     if ($recurringId === false || $recurringId === null) {
         redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('無效的重複記錄編號。'));
@@ -218,6 +226,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '') === 'generate_recurring') {
     if (!checkCsrf(is_string($_POST['csrf_token'] ?? '') ? $_POST['csrf_token'] : '')) {
         redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('安全驗證失敗，請重新操作。'));
+    }
+    // 僅帳本擁有者或成員可從重複記錄產生記錄（檢視者唯讀）；
+    // 帳本已封存時開頭的檢查（$ledger['archived']）早已導向，不會執行到此
+    if (!in_array($accessRole, ['owner', 'member'], true)) {
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('您沒有權限新增記錄。'));
     }
     if (!isset($today)) {
         $today = new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei'));
@@ -262,8 +275,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
 
 // 本帳查詢參數：月份（預設本月 Asia/Taipei）、單日（entry_date）、類別、類型、頁碼——皆為唯讀查詢
 $today = new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei'));
-$ymRaw = $_GET['ym'] ?? '';
-if (!is_string($ymRaw) || !preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ymRaw)) {
+$ymRaw = inputString($_GET, 'ym');
+if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ymRaw)) {
     $ym = $today->format('Y-m');
 } else {
     $ym = $ymRaw;
@@ -271,8 +284,8 @@ if (!is_string($ymRaw) || !preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ymRaw)) {
 $monthStart = $ym . '-01';
 $monthEnd   = (new DateTimeImmutable($monthStart . ' 00:00:00', new DateTimeZone('Asia/Taipei')))->format('Y-m-t');
 
-// 單日參數解析（格式 Y-m-d，透過 isValidDate() 驗證）
-$entryDateRaw = $_GET['entry_date'] ?? '';
+// 單日參數解析（格式 Y-m-d，透過 isValidDate() 驗證；entry_date[]=x 等陣列參數以 inputString() 防禦）
+$entryDateRaw = inputString($_GET, 'entry_date');
 $entryDate = null;
 if ($entryDateRaw !== '' && isValidDate($entryDateRaw)) {
     $entryDate = $entryDateRaw;
@@ -589,6 +602,11 @@ if (!empty($_SESSION['voice_played'])) {
                     </a>
                 </div>
                 <?php endif; ?>
+                <div class="rail-link">
+                    <a href="./calendar.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="rail-link-item">
+                        <?php echo h('本帳行事曆'); ?>
+                    </a>
+                </div>
             </div>
             <div class="side-foot">
                 <div class="who"><b><?php echo h($user['username']); ?></b><span class="role-chip"><?php echo h($user['role']); ?></span></div>
@@ -651,6 +669,7 @@ if (!empty($_SESSION['voice_played'])) {
                 <div class="plates">
                     <div class="plate in"><small><?php echo h($ymLabel); ?>收入</small><div class="v">+<?php echo h(formatCents($incomeCents)); ?></div></div>
                     <div class="plate out"><small><?php echo h($ymLabel); ?>支出</small><div class="v">-<?php echo h(formatCents($expenseCents)); ?></div></div>
+                    <div class="plate transfer"><small><?php echo h($ymLabel); ?>轉帳</small><div class="v"><?php echo h(formatCents($transferCents)); ?></div></div>
                     <div class="plate net"><small><?php echo h($ymLabel); ?>結餘</small><div class="v"><?php echo h($balanceCents >= 0 ? '+' : '') . h(formatCents($balanceCents)); ?></div></div>
                 </div>
 
@@ -1072,6 +1091,10 @@ if (!empty($_SESSION['voice_played'])) {
                                             $isEntryCreator = ((int) $entry['user_id'] === $userId);
                                             $isLedgerOwner  = ($accessRole === 'owner');
                                             $canAck = $isEntryCreator || $isLedgerOwner;
+                                            // 編輯／作廢（權限矩陣「僅限自己建立的記錄」）：owner 可處理帳本內所有記錄；
+                                            // member 僅限自己建立的記錄；viewer 不可編輯或作廢
+                                            $canEditEntry = in_array($accessRole, ['owner', 'member'], true)
+                                                && ($isLedgerOwner || $isEntryCreator);
                                             ?>
                                             <?php if ($canAck): ?>
                                             <div class="ctr-actions">
@@ -1087,6 +1110,7 @@ if (!empty($_SESSION['voice_played'])) {
                                                     <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
                                                     <button type="submit" class="btn danger sm">爭議</button>
                                                 </form>
+                                                <?php if ($canEditEntry): ?>
                                                 <a href="./edit_entry.php?ledger_id=<?php echo h((string) $ledgerId); ?>&id=<?php echo h((string) $entry['id']); ?>" class="btn secondary sm">編輯</a>
                                                 <form method="POST" action="./delete_entry.php" data-confirm="確定要作廢這筆記錄嗎？" style="display:inline;">
                                                     <input type="hidden" name="id" value="<?php echo h((string) $entry['id']); ?>">
@@ -1094,6 +1118,7 @@ if (!empty($_SESSION['voice_played'])) {
                                                     <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
                                                     <button type="submit" class="btn danger sm">作廢</button>
                                                 </form>
+                                                <?php endif; ?>
                                             </div>
                                             <?php else: ?>
                                             <span class="meta">—</span>

@@ -13,7 +13,7 @@ $userId = (int) $user['id'];
 
 $success = (($_GET['success'] ?? '') === '1');
 $error   = (($_GET['error'] ?? '') === '1');
-$msg     = $_GET['msg'] ?? '';
+$msg     = inputString($_GET, 'msg');
 
 // 取得使用者可存取的帳本列表（供下拉選單）
 $stmt = $pdo->prepare('
@@ -67,8 +67,8 @@ if (!is_string($yearRaw) || !preg_match('/^\d{4}$/', $yearRaw)) {
     $year = $yearRaw;
 }
 
-// 讀取季度，驗證為 Q1-Q4 或 1-4，格式不符時回退至當季
-$quarterRaw = $_GET['quarter'] ?? '';
+// 讀取季度，驗證為 Q1-Q4 或 1-4，格式不符時回退至當季（quarter[]=x 等陣列參數以 inputString() 防禦）
+$quarterRaw = inputString($_GET, 'quarter');
 $quarterMap = ['Q1' => 1, 'Q2' => 2, 'Q3' => 3, 'Q4' => 4, '1' => 1, '2' => 2, '3' => 3, '4' => 4];
 $quarterNum = $quarterMap[$quarterRaw] ?? null;
 if ($quarterNum === null) {

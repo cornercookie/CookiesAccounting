@@ -58,10 +58,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     }
 
     // 關鍵字
-    $keyword = trim((string) ($_POST['keyword'] ?? ''));
+    $keyword = inputString($_POST, 'keyword');
 
     // 金額下限
-    $amountMinRawInput = trim((string) ($_POST['amount_min'] ?? ''));
+    $amountMinRawInput = inputString($_POST, 'amount_min');
     if ($amountMinRawInput !== '') {
         $parsed = toCents($amountMinRawInput);
         if ($parsed === false) {
@@ -72,7 +72,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     }
 
     // 金額上限
-    $amountMaxRawInput = trim((string) ($_POST['amount_max'] ?? ''));
+    $amountMaxRawInput = inputString($_POST, 'amount_max');
     if ($amountMaxRawInput !== '') {
         $parsed = toCents($amountMaxRawInput);
         if ($parsed === false) {
@@ -83,7 +83,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     }
 
     // 日期起始
-    $dateFromRaw = trim((string) ($_POST['date_from'] ?? ''));
+    $dateFromRaw = inputString($_POST, 'date_from');
     if ($dateFromRaw !== '') {
         if (!isValidDate($dateFromRaw)) {
             $errors[] = '起始日期格式不正確（需為 Y-m-d 真實曆日）。';
@@ -93,7 +93,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     }
 
     // 日期結束
-    $dateToRaw = trim((string) ($_POST['date_to'] ?? ''));
+    $dateToRaw = inputString($_POST, 'date_to');
     if ($dateToRaw !== '') {
         if (!isValidDate($dateToRaw)) {
             $errors[] = '結束日期格式不正確（需為 Y-m-d 真實曆日）。';
@@ -114,8 +114,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
 // 預設行為：GET 也允許帶參數（支援分頁連結）
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
-    $keyword = trim((string) ($_GET['keyword'] ?? ''));
-    $amountMinRaw = trim((string) ($_GET['amount_min'] ?? ''));
+    $keyword = inputString($_GET, 'keyword');
+    $amountMinRaw = inputString($_GET, 'amount_min');
     if ($amountMinRaw !== '') {
         $parsed = toCents($amountMinRaw);
         if ($parsed !== false) {
@@ -123,7 +123,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
             $amountMinRawInput = $amountMinRaw; // 回填用原始輸入
         }
     }
-    $amountMaxRaw = trim((string) ($_GET['amount_max'] ?? ''));
+    $amountMaxRaw = inputString($_GET, 'amount_max');
     if ($amountMaxRaw !== '') {
         $parsed = toCents($amountMaxRaw);
         if ($parsed !== false) {
@@ -131,11 +131,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
             $amountMaxRawInput = $amountMaxRaw;
         }
     }
-    $dateFromRaw = trim((string) ($_GET['date_from'] ?? ''));
+    $dateFromRaw = inputString($_GET, 'date_from');
     if ($dateFromRaw !== '' && isValidDate($dateFromRaw)) {
         $dateFrom = $dateFromRaw;
     }
-    $dateToRaw = trim((string) ($_GET['date_to'] ?? ''));
+    $dateToRaw = inputString($_GET, 'date_to');
     if ($dateToRaw !== '' && isValidDate($dateToRaw)) {
         $dateTo = $dateToRaw;
     }

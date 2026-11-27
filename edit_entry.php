@@ -39,13 +39,15 @@ if ((int) ($ledger['archived'] ?? 0) === 1) {
 }
 $accessRole = $ledger['role'];
 $canWrite = in_array($accessRole, ['owner', 'member'], true);
+// 權限矩陣「僅限自己建立的記錄」：owner 可編輯帳本內所有記錄；member 僅限自己建立的記錄
+$isLedgerOwner = ($accessRole === 'owner') ? 1 : 0;
 
 // 側欄「這本帳」：帳本編號、名稱與成員名單（含角色）
 $memberStmt = $pdo->prepare('SELECT u.username, la.role FROM ledger_access la INNER JOIN users u ON u.id = la.user_id WHERE la.ledger_id = :ledger_id ORDER BY u.username');
 $memberStmt->execute([':ledger_id' => $ledgerId]);
 $members = $memberStmt->fetchAll();
 
-// 查詢現有記錄（僅未刪除、且使用者有權存取）
+// 查詢現有記錄（僅未刪除、且使用者有權存取；member 僅能編輯自己建立的記錄）
 $stmt = $pdo->prepare('
     SELECT e.id, e.amount_cents, e.type, e.category, e.entry_date, e.note, e.receipt_path,
            e.currency, e.exchange_rate, e.original_amount_cents
@@ -53,9 +55,10 @@ $stmt = $pdo->prepare('
     WHERE e.id = :entry_id
       AND e.ledger_id = :ledger_id
       AND e.deleted = 0
+      AND (:is_owner = 1 OR e.user_id = :user_id)
     LIMIT 1
 ');
-$stmt->execute([':entry_id' => $entryId, ':ledger_id' => $ledgerId]);
+$stmt->execute([':entry_id' => $entryId, ':ledger_id' => $ledgerId, ':is_owner' => $isLedgerOwner, ':user_id' => $userId]);
 $entry = $stmt->fetch();
 if ($entry === false) {
     redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1');
@@ -73,23 +76,23 @@ $error     = '';
 $success   = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!checkCsrf($_POST['csrf_token'] ?? '')) {
+    if (!checkCsrf(inputString($_POST, 'csrf_token'))) {
         $error = '請求驗證失敗，請重新提交表單。';
     } elseif (!$canWrite) {
         $error = '您的身份為檢視者，無法編輯此記錄。';
     } else {
-        $amount    = trim($_POST['amount'] ?? '');
-        $entryDate = trim($_POST['entry_date'] ?? '');
-        $categoryPreset = trim($_POST['category_preset'] ?? '');
+        $amount    = inputString($_POST, 'amount');
+        $entryDate = inputString($_POST, 'entry_date');
+        $categoryPreset = inputString($_POST, 'category_preset');
         if ($categoryPreset !== '' && $categoryPreset !== '__custom__') {
             $category = $categoryPreset;
         } else {
-            $category = trim($_POST['category'] ?? '');
+            $category = inputString($_POST, 'category');
         }
-        $note      = trim($_POST['note'] ?? '');
+        $note      = inputString($_POST, 'note');
         $type      = $_POST['type'] ?? '';
-        $currency  = trim($_POST['currency'] ?? 'TWD');
-        $exchangeRate = trim($_POST['exchange_rate'] ?? '1.0000');
+        $currency  = inputString($_POST, 'currency', 'TWD');
+        $exchangeRate = inputString($_POST, 'exchange_rate', '1.0000');
 
         // 後端二次驗證【後端必驗】
         if (!isSupportedCurrency($currency)) {
@@ -144,6 +147,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if (!$receiptUploadFailed) {
+                // 更新條件與載入查詢一致：member 僅能更新自己建立的記錄（owner 不限）
                 $stmt = $pdo->prepare('
                     UPDATE entries
                     SET amount_cents = :amount_cents,
@@ -158,6 +162,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     WHERE id = :entry_id
                       AND ledger_id = :ledger_id
                       AND deleted = 0
+                      AND (:is_owner = 1 OR user_id = :user_id)
                 ');
                 $stmt->execute([
                     ':amount_cents' => $cents,
@@ -171,6 +176,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ':original_amount_cents' => $foreignCents,
                     ':entry_id'    => $entryId,
                     ':ledger_id'   => $ledgerId,
+                    ':is_owner'    => $isLedgerOwner,
+                    ':user_id'     => $userId,
                 ]);
                 logAudit('entry_edit', json_encode([
                     'entry_id' => $entryId,
@@ -331,17 +338,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             <div class="field field-full">
                                 <label for="category" class="label">類別</label>
+                                <?php $presetCategories = defaultEntryCategories(); ?>
                                 <select name="category_preset" id="category_preset" class="select">
                                     <option value=""<?php echo $category === '' ? ' selected' : ''; ?>>選擇常用分類</option>
-                                    <option value="餐費"<?php echo $category === '餐費' ? ' selected' : ''; ?>>餐費</option>
-                                    <option value="交通"<?php echo $category === '交通' ? ' selected' : ''; ?>>交通</option>
-                                    <option value="娛樂"<?php echo $category === '娛樂' ? ' selected' : ''; ?>>娛樂</option>
-                                    <option value="醫療"<?php echo $category === '醫療' ? ' selected' : ''; ?>>醫療</option>
-                                    <option value="薪資"<?php echo $category === '薪資' ? ' selected' : ''; ?>>薪資</option>
-                                    <option value="水電瓦斯"<?php echo $category === '水電瓦斯' ? ' selected' : ''; ?>>水電瓦斯</option>
-                                    <option value="日用品"<?php echo $category === '日用品' ? ' selected' : ''; ?>>日用品</option>
-                                    <option value="其他"<?php echo $category === '其他' ? ' selected' : ''; ?>>其他</option>
-                                    <option value="__custom__"<?php echo !in_array($category, ['', '餐費', '交通', '娛樂', '醫療', '薪資', '水電瓦斯', '日用品', '其他'], true) ? ' selected' : ''; ?>>自訂分類</option>
+                                    <?php foreach ($presetCategories as $presetCategory): ?>
+                                        <option value="<?php echo h($presetCategory); ?>"<?php echo $category === $presetCategory ? ' selected' : ''; ?>><?php echo h($presetCategory); ?></option>
+                                    <?php endforeach; ?>
+                                    <option value="__custom__"<?php echo !in_array($category, array_merge([''], $presetCategories), true) ? ' selected' : ''; ?>>自訂分類</option>
                                 </select>
                                 <input type="text" name="category" id="category" required class="input" value="<?php echo h($category); ?>" placeholder="例如 餐費、薪資" autocomplete="off">
                                 <p class="meta" style="margin-top: var(--space-2);">可從常用分類選擇，或自行輸入分類（最多 50 字元）。</p>

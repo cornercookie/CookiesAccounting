@@ -63,7 +63,7 @@ $geminiApiKey  = (string) env('GEMINI_API_KEY');
 $isPlaceholder = in_array($adminPassword, $envPlaceholders, true)
     || $adminPassword === 'admin'
     || $adminPassword === 'password'
-    || in_array($geminiApiKey, $envPlaceholders, true);
+    || $geminiApiKey === 'your_gemini_api_key_here';
 if ($isPlaceholder) {
     error_log('[SEC-005 WARNING] .env 仍使用預設佔位符密碼或 API 金鑰，部署前請務必替換為強密碼。');
 }

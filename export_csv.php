@@ -174,7 +174,7 @@ try {
         $exportSuccess = true;
     }
 } catch (Throwable $e) {
-    logError('export_csv_failed', $e->getMessage());
+    logError('export_csv_failed: ' . $e->getMessage());
     http_response_code(500);
     include __DIR__ . '/error.php';
     exit;

@@ -18,7 +18,8 @@ $defaultYm = $today->format('Y-m');
 
 // === 月份參數解析（§3.2 第 2 點）===
 // 驗證格式 /^\d{4}-(0[1-9]|1[0-2])$/；驗證通過後額外檢查年份下限 1-9999
-$ymRaw = $_GET['ym'] ?? '';
+// ym[]=x 等陣列參數以 inputString() 防禦，避免流入 preg_match() 造成 TypeError
+$ymRaw = inputString($_GET, 'ym');
 $ym = null;
 $ymHint = '';
 $ledgerHint = '';

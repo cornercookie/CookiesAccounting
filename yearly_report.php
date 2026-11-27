@@ -13,7 +13,7 @@ $userId = (int) $user['id'];
 
 $success = (($_GET['success'] ?? '') === '1');
 $error   = (($_GET['error'] ?? '') === '1');
-$msg     = $_GET['msg'] ?? '';
+$msg     = inputString($_GET, 'msg');
 
 // 取得使用者可存取的帳本列表（供下拉選單）
 $stmt = $pdo->prepare('

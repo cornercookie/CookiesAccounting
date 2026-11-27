@@ -56,11 +56,19 @@ function getPdo(): PDO
     return $pdo;
 }
 
+const SCHEMA_VERSION = 34;
+
 /**
  * 建立資料表與索引（若尚不存在）。
  */
 function ensureSchema(PDO $pdo): void
 {
+    $schemaOk = true;
+    $v = (int) $pdo->query('PRAGMA user_version')->fetchColumn();
+    if ($v >= SCHEMA_VERSION) {
+        return;
+    }
+
     $pdo->exec(<<<'SQL'
     CREATE TABLE IF NOT EXISTS users (
         id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -240,6 +248,7 @@ SQL);
         if ($pdo->inTransaction()) {
             $pdo->exec('ROLLBACK');
         }
+        $schemaOk = false;
         logError('entries.type migration failed: ' . $e->getMessage());
     }
     if ($fkWasOn) {
@@ -305,6 +314,7 @@ SQL);
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
             }
+            $schemaOk = false;
             logError('[#26] category_budgets 唯一索引遷移失敗: ' . $e->getMessage());
         }
     }
@@ -367,6 +377,7 @@ SQL);
     try {
         $pdo->exec("UPDATE entries SET currency='TWD', exchange_rate=10000, original_amount_cents=amount_cents WHERE currency = ''");
     } catch (Throwable $e) {
+        $schemaOk = false;
         logError('multi-currency migration UPDATE failed: ' . $e->getMessage());
     }
     // 注意：不建立資料庫 CHECK 約束，幣別與匯率驗證完全在應用層執行
@@ -420,6 +431,10 @@ SQL);
     if (!$hasRecurringSource) {
         $pdo->exec("ALTER TABLE entries ADD COLUMN recurring_source_id INTEGER");
     }
+    $pdo->exec(<<<'SQL'
+    CREATE INDEX IF NOT EXISTS idx_entries_ledger_deleted_date ON entries(ledger_id, deleted, entry_date);
+    CREATE INDEX IF NOT EXISTS idx_entries_recurring_source_date ON entries(recurring_source_id, entry_date);
+SQL);
 
     // [#20] 記錄確認/認領機制：entries 補確認狀態欄位與確認者/確認時間
     $hasAckStatus = $hasAckUser = $hasAckAt = false;
@@ -467,6 +482,10 @@ SQL);
     }
     if (!$hasPasswordChangedAt) {
         $pdo->exec("ALTER TABLE users ADD COLUMN password_changed_at TEXT");
+    }
+
+    if ($schemaOk) {
+        $pdo->exec('PRAGMA user_version = ' . SCHEMA_VERSION);
     }
 }
 

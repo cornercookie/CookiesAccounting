@@ -50,29 +50,34 @@ if (!in_array($access['role'], ['owner', 'member'], true)) {
     redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1');
 }
 
-// 確認記錄存在、所屬帳本可存取，且尚未刪除
+// 權限矩陣「僅限自己建立的記錄」：owner 可作廢帳本內所有記錄；member 僅限自己建立的記錄
+$isLedgerOwner = ($access['role'] === 'owner') ? 1 : 0;
+
+// 確認記錄存在、所屬帳本可存取，且尚未刪除（member 僅能作廢自己建立的記錄）
 $stmt = $pdo->prepare('
     SELECT id
     FROM entries
     WHERE id = :id
       AND ledger_id = :ledger_id
       AND deleted = 0
+      AND (:is_owner = 1 OR user_id = :user_id)
     LIMIT 1
 ');
-$stmt->execute([':id' => $id, ':ledger_id' => $ledgerId]);
+$stmt->execute([':id' => $id, ':ledger_id' => $ledgerId, ':is_owner' => $isLedgerOwner, ':user_id' => $userId]);
 if ($stmt->fetch() === false) {
     redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1');
 }
 
-// 軟刪除：prepared statement，並且只作廢尚未刪除的記錄
+// 軟刪除：prepared statement，並且只作廢尚未刪除的記錄（SELECT 與 UPDATE 套用同一權限條件）
 $stmt = $pdo->prepare('
     UPDATE entries
     SET deleted = 1
     WHERE id = :id
       AND ledger_id = :ledger_id
       AND deleted = 0
+      AND (:is_owner = 1 OR user_id = :user_id)
 ');
-$stmt->execute([':id' => $id, ':ledger_id' => $ledgerId]);
+$stmt->execute([':id' => $id, ':ledger_id' => $ledgerId, ':is_owner' => $isLedgerOwner, ':user_id' => $userId]);
 $deleted = $stmt->rowCount() > 0;
 if ($deleted) {
     // 清理關聯收據圖片（若有）

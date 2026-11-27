@@ -4,6 +4,22 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/functions.php';
 
+function formatSignedCents(int $c): string
+{
+    if ($c === 0) {
+        return formatCents(0);
+    }
+    return ($c > 0 ? '+' : '-') . formatCents(abs($c));
+}
+
+function formatSignedPercent(?int $percent): string
+{
+    if ($percent === null) {
+        return '－';
+    }
+    return ($percent > 0 ? '+' : '') . $percent . '%';
+}
+
 // 未登入不得存取內頁
 requireLogin();
 
@@ -13,7 +29,7 @@ $userId = (int) $user['id'];
 
 $success = (($_GET['success'] ?? '') === '1');
 $error   = (($_GET['error'] ?? '') === '1');
-$msg     = $_GET['msg'] ?? '';
+$msg     = inputString($_GET, 'msg');
 
 // 取得使用者可存取的帳本列表（供下拉選單）
 $stmt = $pdo->prepare('
@@ -119,7 +135,7 @@ if ($categorySel !== '' && !in_array($categorySel, $categoryValues, true)) {
 $csrfError = '';
 $isSubmitted = (($_GET['_submit'] ?? '') === '1');
 if ($isSubmitted) {
-    if (!checkCsrf($_GET['csrf_token'] ?? '')) {
+    if (!checkCsrf(inputString($_GET, 'csrf_token'))) {
         $csrfError = '請求驗證失敗，請重新提交表單。';
     }
 }
@@ -199,11 +215,10 @@ if ($csrfError === '') {
     }
 }
 
-// 合併類別清單，計算差額（絕對值）與百分比變動（整數運算，禁止 FLOAT）
+// 合併類別清單，計算有號差額與百分比變動（整數運算，禁止 FLOAT）
 $comparison = [];
 $totalACents = 0;
 $totalBCents = 0;
-$totalDiffCents = 0;
 
 $allCategories = array_unique(array_merge(array_keys($periodAStats), array_keys($periodBStats)));
 sort($allCategories);
@@ -211,12 +226,8 @@ sort($allCategories);
 foreach ($allCategories as $category) {
     $aCents = $periodAStats[$category] ?? 0;
     $bCents = $periodBStats[$category] ?? 0;
-    $diffCents = abs($aCents - $bCents);
-    if ($bCents > 0) {
-        $percentChange = (int) floor($diffCents * 100 / $bCents);
-    } else {
-        $percentChange = null;
-    }
+    $diffCents = $aCents - $bCents;
+    $percentChange = $bCents > 0 ? intdiv($diffCents * 100, $bCents) : null;
     $comparison[] = [
         'category'       => $category,
         'periodA'        => $aCents,
@@ -226,9 +237,10 @@ foreach ($allCategories as $category) {
     ];
     $totalACents += $aCents;
     $totalBCents += $bCents;
-    $totalDiffCents += $diffCents;
 }
 
+$totalDiffCents = $totalACents - $totalBCents;
+$totalPercentChange = $totalBCents > 0 ? intdiv($totalDiffCents * 100, $totalBCents) : null;
 $hasData = count($comparison) > 0;
 ?>
 <!DOCTYPE html>
@@ -395,7 +407,7 @@ $hasData = count($comparison) > 0;
                                     <th>類別</th>
                                     <th class="num"><?php echo h($periodALabel); ?></th>
                                     <th class="num"><?php echo h($periodBLabel); ?></th>
-                                    <th class="num">差額（絕對值）</th>
+                                    <th class="num">差額（A − B）</th>
                                     <th class="num">變動幅度</th>
                                 </tr>
                             </thead>
@@ -405,16 +417,16 @@ $hasData = count($comparison) > 0;
                                     <td><?php echo h($c['category']); ?></td>
                                     <td class="num amt-out mono">-<?php echo h(formatCents($c['periodA'])); ?></td>
                                     <td class="num amt-out mono">-<?php echo h(formatCents($c['periodB'])); ?></td>
-                                    <td class="num mono"><?php echo h(formatCents($c['diff'])); ?></td>
-                                    <td class="num mono"><?php echo $c['percentChange'] !== null ? h((string) $c['percentChange']) . '%' : '－'; ?></td>
+                                    <td class="num mono"><?php echo h(formatSignedCents($c['diff'])); ?></td>
+                                    <td class="num mono"><?php echo h(formatSignedPercent($c['percentChange'])); ?></td>
                                 </tr>
                                 <?php endforeach; ?>
                                 <tr class="comparison-total-row">
                                     <td><strong>總計</strong></td>
                                     <td class="num amt-out mono">-<?php echo h(formatCents($totalACents)); ?></td>
                                     <td class="num amt-out mono">-<?php echo h(formatCents($totalBCents)); ?></td>
-                                    <td class="num mono"><?php echo h(formatCents($totalDiffCents)); ?></td>
-                                    <td class="num mono"><?php echo $totalBCents > 0 ? h((string) (int) floor($totalDiffCents * 100 / $totalBCents)) . '%' : '－'; ?></td>
+                                    <td class="num mono"><?php echo h(formatSignedCents($totalDiffCents)); ?></td>
+                                    <td class="num mono"><?php echo h(formatSignedPercent($totalPercentChange)); ?></td>
                                 </tr>
                             </tbody>
                         </table>

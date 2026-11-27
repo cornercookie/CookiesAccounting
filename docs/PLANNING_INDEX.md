@@ -43,6 +43,7 @@
 | **[#22]** | **轉帳對帳** | `[#22]_transfer-reconciliation/` | ✅ | ❌ | - | ⏳ **待實作** | |
 | **[#23]** | **匯出更多格式** | `[#23]_export-more-formats/` | ✅ | ✅ | 設計階段：Spec ✅ / Code ✅ / Security ✅<br/>實作階段：Spec ✅ / Code ✅ / Security ✅ | ✅ **已完成** | 匯出 CSV/JSON/單筆傳票 PDF |
 | **[#24]** | **多幣別** | `[#24]_multi-currency/` | ✅ | ❌ | - | ⏳ **待實作** | |
+| **[#34]** | **全專案審查** | `[#34]_full-project-review/` | ✅ | ✅ | 設計階段：Spec ✅ / Code ✅ / Security ✅<br/>實作階段：Spec ✅ / Code ✅ / Security ✅ | ✅ **已完成** | `7cdcfb1`、`7d48cf0`；Hermes 獨立唯讀審查 |
 
 ---
 

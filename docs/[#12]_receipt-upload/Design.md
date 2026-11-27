@@ -5,10 +5,10 @@
 | 項目 | 內容 |
 | --- | --- |
 | 名稱 | 拍照收據 / 發票小圖夾設計 |
-| 版本 | v1.1 |
+| 版本 | v1.2 |
 | 建立日期 | 2026-11-21 |
-| 更新日期 | 2026-11-23 |
-| 變更摘要 | v1.1 修正縮圖顯示機制（mode=inline/download）、移除重複程式碼至 functions.php 共用、補充審計日誌代碼表、Nginx 部署範例、.htaccess 範例、權限要求、效能備註。依獨立審查報告修正。 |
+| 更新日期 | 2026-11-27 |
+| 變更摘要 | v1.2 修正原圖預覽和手機收據入口，保留既有下載路由，記錄 PHP 上傳上限與實測。v1.1 建立縮圖／下載模式、共用上傳及部署說明。 |
 
 ## 1. 變更概述
 
@@ -50,19 +50,19 @@
 2. **顯示（`ledger.php`）**：
    - 在分錄表格的「備註」或獨立欄位顯示小圖圖示。
    - 縮圖：`<img src="./view_receipt.php?id=<entry_id>&mode=inline">`，後端以 `Content-Disposition: inline` 回應。
-   - 大圖：`<a href="./view_receipt.php?id=<entry_id>">`（預設 `mode=download`），後端以 `Content-Disposition: attachment` 強制下載。
+   - 大圖預覽：縮圖連結指向同一受保護路由的 `mode=inline`，於新分頁開啟原圖；不需要先下載。未指定模式或明確指定 `mode=download` 的既有下載網址仍回應 `attachment`。
    - `view_receipt.php` 另支援條件快取（ETag/Last-Modified），減少重複下載頻寬。
 3. **作廢清理（`delete_entry.php`）**：
    - 作廢記錄時，若 `receipt_path` 非空，一併 `unlink()` 刪除實體圖片。
 
 ### 3.1 縮圖顯示技術方案（SPEC-01 修正）
 
-為同時滿足「明細頁內嵌縮圖預覽」與「大圖安全下載」兩種行為，`view_receipt.php` 採用查詢參數 `mode` 區分：
+`view_receipt.php` 透過 `mode` 區分預覽與下載。兩種模式使用同一授權檢查，不開放上傳目錄。
 
 | 模式 | 參數 | Content-Disposition | 用途 |
 |------|------|---------------------|------|
-| 縮圖內嵌 | `?mode=inline` | `inline` | 明細頁 `<img>` 顯示 48×48 縮圖 |
-| 大圖下載 | `?mode=download` 或無參數 | `attachment` | 點擊放大、另存新檔 |
+| 預覽 | `?mode=inline` | `inline` | 明細頁 `<img>` 顯示 48×48 縮圖；點擊在新分頁檢視原圖 |
+| 下載 | `?mode=download` 或無參數 | `attachment` | 保留既有下載連結相容性 |
 
 此設計避免單一端點同時服務兩種相衝突的回應標頭，並保持私密目錄不被直接公開。
 
@@ -92,9 +92,19 @@
 - 未登入或無權限者無法存取 `view_receipt.php`。
 - 作廢記錄時關聯圖片被清理。
 - 上傳失敗時（格式不符、超過 5MB），表單重新顯示並提示錯誤，不靜默新增記錄。
-- **縮圖正確顯示於明細表**（`mode=inline` 內嵌，不觸發下載）。
+- **縮圖正確顯示於明細表，點擊可預覽原圖**：跟隨實際連結，確認回應 `image/png`、`inline` 與原始圖檔內容；無模式網址仍回應 `attachment`。
 - 編輯更換收據後舊檔被刪除。
 - **審計日誌正確記錄 `entry_create`、`entry_edit`、`entry_delete`、`entry_receipt_view` 四種 action 代碼**。
+
+### 本機驗證：原圖預覽與上傳上限
+
+- 在隔離 Docker Apache／SQLite 中，`tests/apache_smoke.py` 跟隨帳本明細實際連結：修前回應下載，修後回應 `image/png` 與 `Content-Disposition: inline`，原圖位元組一致；原有無模式網址仍下載。設計與實作均通過獨立 Spec／Code／Security 靜態審查。
+- 獨立實測：非圖片提示且不新增記錄，直接讀取私密圖片回應 403；替換收據維持原記錄 ID 並清除舊檔；作廢清除新檔，串流路由不再提供圖片。
+- 同一個約 3 MB 的有效 PNG 在預設 `2M` 失敗，僅提高隔離 Apache 的 PHP 限額後成功；超過應用程式 5 MiB 上限的 PNG 仍被拒絕並顯示表單錯誤。正式 cPanel 設定、全部授權角色及圖片格式未在本次驗收。
+
+### 手機收據入口
+
+Chrome 在 390px、320px 重現收據欄被 `hide-m` 隱藏。修正僅移除帳本明細的收據表頭與儲存格上的 `hide-m`，保留既有橫向捲動、48×48 縮圖與授權。以本機 Chrome 在 1100px、390px、320px 實測表頭與儲存格均可見、對齊，觸控目標均為 54×54px。設計與實作靜態審查無阻塞；此次確認的是 Chrome 模擬視窗寬度，未宣稱實體手機驗收。
 
 ## 6. 實作註記（範圍說明）
 
@@ -102,6 +112,7 @@
 - 編輯記錄時若上傳新收據，會先刪除舊收據實體檔，再儲存新圖片並更新 `entries.receipt_path`。
 - `view_receipt.php` 支援條件快取：回傳 `ETag`（`md5_file + size`）與 `Last-Modified`，檢查 `If-None-Match` / `If-Modified-Since`，符合時回傳 304 Not Modified（CODE-03）。
 - 部署於 Nginx 時，`.htaccess` 不生效，需於伺服器層級另行封鎖 `private_data/uploads/` 直接存取。
+- **PHP 上傳上限是部署前提**：應用程式上限為 `5 × 1024 × 1024` 位元組。cPanel 需啟用 `fileinfo`，設定 `upload_max_filesize` 至少 `5M`、`post_max_size` 大於 `5M`（例如 `8M`，保留表單與 multipart 額外空間）。本機 Apache 映像預設 `2M` 時，約 3 MB 的合法 PNG 已在 PHP 層被擋；不應為此放寬應用程式的 5MB 限制或在專案 `.htaccess` 強制寫 PHP 指令。
 
 ### 6.1 Nginx 部署私密目錄防護範例（SPEC-03）
 

@@ -1,5 +1,5 @@
 <?php
-// 全家人記帳系統 — 單筆傳票列印降級頁面（TCPDF 載入失敗時）
+// 全家人記帳系統 — 單筆傳票 HTML 列印預覽。
 // 此檔案由 export_pdf.php 透過 include 引入，依賴外部作用域變數：
 // $entry: array 包含 id, entry_date, type, amount_cents, category, note, username, ledger_name
 // $user: 當前使用者陣列 (currentUser() 回傳格式)
@@ -16,16 +16,10 @@ if (!isset($entry) || !is_array($entry) || !isset($user) || !isset($ledger)) {
     exit;
 }
 
-// 防止直接存取
-if (!isset($entry) || !is_array($entry)) {
-    http_response_code(404);
-    include __DIR__ . '/error.php';
-    exit;
-}
-
-$pageTitle = '列印傳票 #' . h((string) $entry['id']);
-$ledgerName = h($entry['ledger_name']);
-$subText = '列印模式（瀏覽器列印為 PDF）';
+$pageTitle = '列印傳票 #' . (string) $entry['id'];
+$ledgerName = $entry['ledger_name'];
+$escapedLedgerName = h($ledgerName);
+$subText = '可列印頁面，不是 PDF 檔。請用瀏覽器列印。';
 
 $typeLabel = match ($entry['type']) {
     'income' => '收入',
@@ -34,18 +28,27 @@ $typeLabel = match ($entry['type']) {
     default => '未知',
 };
 
-$amount = formatCents($entry['amount_cents']);
+$currency = (string) ($entry['currency'] ?? 'TWD');
+$amountCents = (int) $entry['amount_cents'];
+$originalCents = displayOriginalCents((int) ($entry['original_amount_cents'] ?? 0), $amountCents, $currency);
+$currencyLabel = h($currency);
+$originalAmount = h(formatForeignAmount($originalCents, $currency));
+$exchangeRate = h(formatExchangeRate((int) ($entry['exchange_rate'] ?? 10000)));
+$amount = h(formatCents($amountCents));
 $category = h($entry['category']);
 $username = h($entry['username']);
 $note = h((string) ($entry['note'] ?? ''));
 $date = h($entry['entry_date']);
 $entryId = h((string) $entry['id']);
 
+$previewTime = h(date('Y-m-d H:i:s'));
+$ledgerUrl = './ledger.php?ledger_id=' . h((string) $ledgerId);
+
 $content = <<<HTML
 <div class="voucher-print">
     <div class="voucher-header">
-        <h1>{$ledgerName} - 傳票 #{$entryId}</h1>
-        <p class="voucher-meta">列印時間：<?php echo date('Y-m-d H:i:s'); ?></p>
+        <h2>{$escapedLedgerName} - 傳票 #{$entryId}</h2>
+        <p class="voucher-meta">預覽時間：{$previewTime}</p>
     </div>
 
     <table class="voucher-table">
@@ -63,7 +66,19 @@ $content = <<<HTML
                 <td class="voucher-value">{$typeLabel}</td>
             </tr>
             <tr>
-                <th class="voucher-label">金額 (元)</th>
+                <th class="voucher-label">原幣別</th>
+                <td class="voucher-value">{$currencyLabel}</td>
+            </tr>
+            <tr>
+                <th class="voucher-label">原幣金額</th>
+                <td class="voucher-value">{$originalAmount}</td>
+            </tr>
+            <tr>
+                <th class="voucher-label">匯率</th>
+                <td class="voucher-value">{$exchangeRate}</td>
+            </tr>
+            <tr>
+                <th class="voucher-label">台幣金額（元）</th>
                 <td class="voucher-value amount">{$amount}</td>
             </tr>
             <tr>
@@ -81,10 +96,9 @@ $content = <<<HTML
         </tbody>
     </table>
 
-    <div class="voucher-actions">
-        <button type="button" class="btn primary" onclick="window.print()">列印 / 另存為 PDF</button>
-        <a href="./export_pdf.php?ledger_id=<?php echo h((string) $_GET['ledger_id']); ?>&entry=<?php echo h((string) $_GET['entry']); ?>" class="btn secondary">重試 PDF 匯出</a>
-        <a href="./ledger.php?ledger_id=<?php echo h((string) $_GET['ledger_id']); ?>" class="btn secondary">返回帳本詳情</a>
+    <div class="voucher-actions print-page-controls">
+        <button type="button" class="btn primary" data-print-page>列印</button>
+        <a href="{$ledgerUrl}" class="btn secondary">返回帳本詳情</a>
     </div>
 </div>
 HTML;

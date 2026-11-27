@@ -2,6 +2,12 @@
 // 在所有內頁引入，取代各頁重複的內聯 <script>
 (function () {
 
+  // 保持 CSP 只允許同源腳本；取消確認時不提交表單。
+  document.addEventListener('submit', function (event) {
+    var message = event.submitter?.dataset.confirm || event.target.dataset.confirm;
+    if (message && !window.confirm(message)) event.preventDefault();
+  });
+
   // ---------- 工具：Cookie 讀寫 ----------
   function getCookie(name) {
     var value = '; ' + document.cookie;
@@ -60,8 +66,8 @@
     document.querySelectorAll('.quick-date-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var offset = parseInt(btn.getAttribute('data-offset') || '0', 10);
-        var d = new Date(today + 'T00:00:00');
-        d.setDate(d.getDate() + offset);
+        var d = new Date(today + 'T00:00:00Z');
+        d.setUTCDate(d.getUTCDate() + offset);
         var ymd = d.toISOString().slice(0, 10);
         input.value = ymd;
       });
@@ -96,7 +102,7 @@
     var modal = document.getElementById('editRecurringModal');
     if (!modal) return;
 
-    window.openEditRecurringFromElement = function (btn) {
+    function openEditRecurring(btn) {
       document.getElementById('edit_recurring_id').value = btn.dataset.recurringId;
       document.getElementById('edit_recurring_name').value = btn.dataset.name;
       var amountCents = parseInt(btn.dataset.amountCents, 10);
@@ -109,11 +115,18 @@
       document.getElementById('edit_recurring_start_date').value = btn.dataset.startDate;
       document.getElementById('edit_recurring_next_due').value = btn.dataset.nextDueDate;
       modal.style.display = 'block';
-    };
+    }
 
-    window.closeEditRecurring = function () {
+    function closeEditRecurring() {
       modal.style.display = 'none';
-    };
+    }
+
+    document.querySelectorAll('[data-recurring-id]').forEach(function (button) {
+      button.addEventListener('click', function () { openEditRecurring(button); });
+    });
+    document.querySelectorAll('[data-close-recurring]').forEach(function (button) {
+      button.addEventListener('click', closeEditRecurring);
+    });
 
     window.addEventListener('click', function (event) {
       if (event.target === modal) {
@@ -154,6 +167,102 @@
       textarea.addEventListener('input', updateCount);
       updateCount(); // 初始化
     });
+  })();
+
+  // ---------- 幣別切換：顯示/隱藏匯率欄位（add_entry.php / edit_entry.php）----------
+  (function initCurrencyToggle() {
+    var currencySelect = document.getElementById('currency');
+    var exchangeRateField = document.getElementById('exchangeRateField');
+    var exchangeRateInput = document.getElementById('exchange_rate');
+    if (!currencySelect || !exchangeRateField || !exchangeRateInput) return;
+
+    function toggleExchangeRate() {
+      if (currencySelect.value === 'TWD') {
+        exchangeRateField.style.display = 'none';
+        exchangeRateInput.value = '1.0000';
+        exchangeRateInput.removeAttribute('required');
+      } else {
+        exchangeRateField.style.display = '';
+        exchangeRateInput.setAttribute('required', '');
+      }
+    }
+
+    toggleExchangeRate();
+    currencySelect.addEventListener('change', toggleExchangeRate);
+  })();
+
+  // ---------- 金額格式化（供 transfer_pair 差額預覽使用）----------
+  window.formatCents = function (cents) {
+    var neg = cents < 0;
+    var abs = Math.abs(cents);
+    var dollars = Math.floor(abs / 100);
+    var c = abs % 100;
+    return (neg ? '-' : '') + dollars.toLocaleString() + '.' + String(c).padStart(2, '0');
+  };
+
+  // ---------- 月結單及傳票列印 ----------
+  document.querySelectorAll('[data-print-page]').forEach(function (button) {
+    button.addEventListener('click', function () { window.print(); });
+  });
+
+  // ---------- 匯出連結月份更新（ledger.php）----------
+  (function initExportMonth() {
+    var select = document.getElementById('exportYmSelect');
+    if (!select) return;
+    var links = [
+      document.querySelector('a[href*="export_csv.php"][href*="format=csv"]'),
+      document.querySelector('a[href*="export_csv.php"][href*="format=json"]')
+    ];
+    select.addEventListener('change', function () {
+      links.forEach(function (link) {
+        if (!link) return;
+        var url = new URL(link.href, window.location.origin);
+        url.searchParams.set('ym', select.value);
+        link.href = './export_csv.php' + url.search;
+      });
+    });
+  })();
+
+  // ---------- 轉帳配對差額預覽（transfer_pair.php）----------
+  (function initTransferPair() {
+    var select1 = document.getElementById('entry_id_1');
+    var select2 = document.getElementById('entry_id_2');
+    var diffPreview = document.getElementById('diffPreview');
+    var diffText = document.getElementById('diffText');
+    if (!select1 || !select2 || !diffPreview || !diffText) return;
+
+    function updateDiffPreview() {
+      var opt1 = select1.options[select1.selectedIndex];
+      var opt2 = select2.options[select2.selectedIndex];
+      if (!opt1.value || !opt2.value) {
+        diffPreview.style.display = 'none';
+        return;
+      }
+      if (opt1.value === opt2.value) {
+        diffPreview.style.display = 'none';
+        return;
+      }
+      var amt1 = parseInt(opt1.dataset.amount || '0', 10);
+      var amt2 = parseInt(opt2.dataset.amount || '0', 10);
+      var diff = Math.abs(amt1 - amt2);
+      var diffStr = typeof window.formatCents === 'function' ? window.formatCents(diff) : String(diff);
+      var html = '差額：<strong class="mono">' + diffStr + '</strong> 元';
+      if (diff > 0) {
+        html += ' <span class="warn">(金額不等，配對時將記錄差額)</span>';
+      }
+      diffText.innerHTML = html;
+      diffPreview.style.display = 'block';
+    }
+
+    var reset = document.getElementById('resetPairButton');
+    if (reset) reset.addEventListener('click', function () {
+      select1.value = '';
+      select2.value = '';
+      diffPreview.style.display = 'none';
+    });
+
+    select1.addEventListener('change', updateDiffPreview);
+    select2.addEventListener('change', updateDiffPreview);
   })();
 
 })();

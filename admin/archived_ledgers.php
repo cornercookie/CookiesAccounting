@@ -127,7 +127,7 @@ $archivedLedgers = $stmt->fetchAll();
                                         <td class="num hide-m"><?php echo h((string) $ledger['entry_count']); ?></td>
                                         <td class="hide-m"><?php echo h($ledger['created_at']); ?></td>
                                         <td class="ctr">
-                                            <form method="POST" action="./archived_ledgers.php" style="margin: 0;" onsubmit="return confirm('還原此帳本？還原後會回到帳本管理主頁。');">
+                                            <form method="POST" action="./archived_ledgers.php" style="margin: 0;" data-confirm="還原此帳本？還原後會回到帳本管理主頁。">
                                                 <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
                                                 <input type="hidden" name="action" value="restore_ledger">
                                                 <input type="hidden" name="ledger_id" value="<?php echo h((string) $ledger['id']); ?>">
@@ -149,5 +149,6 @@ $archivedLedgers = $stmt->fetchAll();
             </main>
         </div>
     </div>
+    <script src="../assets/app.js?v=30"></script>
 </body>
 </html>

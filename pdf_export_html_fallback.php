@@ -1,6 +1,5 @@
 <?php
-// 全家人記帳系統 — 匯出 PDF 月結單備援頁面（TCPDF 載入失敗時）
-// 提供列印優化的 HTML 頁面，讓使用者透過瀏覽器「列印為 PDF」
+// 全家人記帳系統 — 月結單 HTML 列印預覽（保留舊檔名相容性）。
 declare(strict_types=1);
 
 require_once __DIR__ . '/functions.php';
@@ -25,18 +24,17 @@ if ($ledger === false) {
     redirect('./ledgers.php?error=1');
 }
 if ((int) ($ledger['archived'] ?? 0) === 1) {
-    redirect('./ledgers.php?error=1&msg=' . urlencode('此帳本已封存，無法匯出報表。'));
+    redirect('./ledgers.php?error=1&msg=' . urlencode('此帳本已封存，無法列印報表。'));
 }
 
-// 讀取日期參數，預設為當月首日與當月最後一日（Asia/Taipei 時區）
-$startDateRaw = $_GET['start_date'] ?? '';
-$endDateRaw   = $_GET['end_date'] ?? '';
-[$startDate, $endDate, $dateError] = parseDateRange($startDateRaw, $endDateRaw);
+header('Content-Type: text/html; charset=utf-8');
+header('Cache-Control: no-store');
+[$startDate, $endDate, $dateError] = parseDateRange($_GET['start_date'] ?? '', $_GET['end_date'] ?? '', $_GET['ym'] ?? '');
 
 if ($dateError !== '') {
     // 日期錯誤：顯示友善錯誤頁面，不 redirect
     $content = '<p class="alert error" role="alert">' . h($dateError) . '</p>';
-    renderPdfExportPage($user, '匯出 PDF 月結單', $ledger['name'], '查詢期間：' . h($startDate) . ' ～ ' . h($endDate), $content);
+    renderPdfExportPage($user, '列印月結單', $ledger['name'], '', $content);
     exit;
 }
 
@@ -46,7 +44,7 @@ if ($dateError !== '') {
 if ($queryError !== '') {
     // 查詢失敗：顯示友善錯誤頁面
     $content = '<p class="alert error" role="alert">' . h($queryError) . '</p>';
-    renderPdfExportPage($user, '匯出 PDF 月結單', $ledger['name'], '查詢期間：' . h($startDate) . ' ～ ' . h($endDate), $content);
+    renderPdfExportPage($user, '列印月結單', $ledger['name'], '', $content);
     exit;
 }
 
@@ -63,29 +61,17 @@ foreach ($monthlyStats as $row) {
     $totalTransferCents += $transfer;
 }
 $totalBalanceCents = $totalIncomeCents - $totalExpenseCents;
+logAudit('statement_print_view', json_encode(['ledger_id' => $ledgerId, 'start_date' => $startDate, 'end_date' => $endDate]));
 ?>
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>匯出 PDF 月結單 - 全家人記帳系統</title>
-    <link rel="stylesheet" href="./assets/style.css?v=20261115-8">
-    <style>
-        /* 列印優化樣式 */
-        @media print {
-            .side, .nav, .ctr-actions, .quick, .font-size-toggle {
-                display: none !important;
-            }
-            .main { margin: 0; padding: 0; }
-            .sheet { width: 100%; max-width: 100%; }
-            body { background: #fff; color: #000; }
-            .pdf-report { page-break-inside: avoid; }
-            .pdf-table, .pdf-total { page-break-inside: avoid; }
-        }
-    </style>
+    <title>列印月結單 - 全家人記帳系統</title>
+    <link rel="stylesheet" href="./assets/style.css?v=20261127-print">
 </head>
-<body>
+<body class="statement-print-page">
     <div class="app">
         <aside class="side">
             <a class="brand" href="./dashboard.php">
@@ -117,7 +103,7 @@ $totalBalanceCents = $totalIncomeCents - $totalExpenseCents;
             <main class="sheet">
                 <div class="page-head">
                     <div>
-                        <h1>匯出 PDF 月結單</h1>
+                        <h1>列印月結單</h1>
                         <p class="sub">帳本：<strong><?php echo h($ledger['name']); ?></strong>　·　期間：<strong><?php echo h($startDate); ?> ～ <?php echo h($endDate); ?></strong></p>
                     </div>
                 </div>
@@ -161,19 +147,29 @@ $totalBalanceCents = $totalIncomeCents - $totalExpenseCents;
                             <thead>
                                 <tr>
                                     <th>日期</th>
-                                    <th class="num">類型</th>
-                                    <th class="num">金額（元）</th>
+                                    <th>類型</th>
+                                    <th>原幣別</th>
+                                    <th class="num">原幣金額</th>
+                                    <th class="num">匯率</th>
+                                    <th class="num">台幣金額（元）</th>
                                     <th>分類</th>
                                     <th>記錄者</th>
                                     <th>備註</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php foreach ($entries as $row): ?>
+                                <?php foreach ($entries as $row):
+                                    $currency = (string) ($row['currency'] ?? 'TWD');
+                                    $amountCents = (int) $row['amount_cents'];
+                                    $originalCents = displayOriginalCents((int) ($row['original_amount_cents'] ?? 0), $amountCents, $currency);
+                                ?>
                                 <tr>
                                     <td><?php echo h($row['entry_date']); ?></td>
                                     <td class="num"><?php echo h($row['type'] === 'income' ? '收入' : ($row['type'] === 'expense' ? '支出' : '轉帳')); ?></td>
-                                    <td class="num"><?php echo h(formatCents((int) $row['amount_cents'])); ?></td>
+                                    <td><?php echo h($currency); ?></td>
+                                    <td class="num"><?php echo h(formatForeignAmount($originalCents, $currency)); ?></td>
+                                    <td class="num"><?php echo h(formatExchangeRate((int) ($row['exchange_rate'] ?? 10000))); ?></td>
+                                    <td class="num"><?php echo h(formatCents($amountCents)); ?></td>
                                     <td><?php echo h($row['category']); ?></td>
                                     <td><?php echo h($row['username']); ?></td>
                                     <td><?php echo h((string) ($row['note'] ?? '')); ?></td>
@@ -184,12 +180,15 @@ $totalBalanceCents = $totalIncomeCents - $totalExpenseCents;
                     </div>
                 <?php endif; ?>
 
-                <p><a href="./export_pdf.php?ledger_id=<?php echo h((string) $ledgerId) . '&start_date=' . urlencode($startDate) . '&end_date=' . urlencode($endDate); ?>" class="btn primary">嘗試重新匯出 PDF</a></p>
-                <p><a href="./ledger.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn secondary">返回帳本詳情</a></p>
+                <div class="print-page-controls">
+                    <p class="sub">請使用瀏覽器列印；系統不提供 PDF 下載。</p>
+                    <?php if ($entries !== []): ?><button type="button" class="btn primary" data-print-page>列印</button><?php endif; ?>
+                    <a href="./ledger.php?ledger_id=<?php echo h((string) $ledgerId); ?>&amp;ym=<?php echo h(substr($startDate, 0, 7)); ?>" class="btn secondary">返回帳本詳情</a>
+                </div>
             </main>
         </div>
     </div>
 
-    <script src="./assets/app.js"></script>
+    <script src="./assets/app.js?v=20261127-print"></script>
 </body>
 </html>

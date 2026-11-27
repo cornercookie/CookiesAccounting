@@ -243,6 +243,12 @@ $isOwner = ($accessRole === 'owner');
 | TC-12 | owner | GET archived ledger | redirect `ledgers.php?error=1` |
 | TC-13 | member | GET archived ledger | redirect `ledgers.php?error=1` |
 
+### 本機角色驗證
+
+`tests/test_budget_roles.py` 以兩個合成成員帳號與獨立 Session 驗證：帳本角色 `member`、`viewer` 都能讀到 `321.00` 的既有預算，頁面不顯示新增／編輯／停用表單；用各自有效的 CSRF 送出這些操作均收到「僅帳本擁有者可管理類別預算。」，SQLite 原預算仍為 `32100` 分且啟用。通過獨立靜態三軸審查與整合實測；本案例不含非成員與封存帳本。
+
+另用隔離 HTTP 探針確認：同一登入帳號可查非封存且有成員關係的帳本；封存或未有 `ledger_access` 的帳本，檢視與送出有效 CSRF 的編輯皆回 `302` 至 `./ledgers.php?error=1`，兩筆預算仍各為 `32100` 分且啟用。此兩案未納入永久回歸。
+
 ---
 
 ## 8. 待確認事項（來自 Planning）

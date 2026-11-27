@@ -203,7 +203,7 @@ $archivedCount = (int) ($stmt->fetch()['archived_count'] ?? 0);
                                                     <a href="./add_entry.php?ledger_id=<?php echo h((string) $ledger['id']); ?>" class="btn sm secondary">新增記錄</a>
                                                 <?php endif; ?>
                                                 <?php if ($user['role'] === 'admin' || $ledger['access_role'] === 'owner'): ?>
-                                                    <form method="POST" action="./ledgers.php" onsubmit="return confirm('封存此帳本？封存後從列表隱藏，記錄完整保留，可隨時還原。');">
+                                                    <form method="POST" action="./ledgers.php" data-confirm="封存此帳本？封存後從列表隱藏，記錄完整保留，可隨時還原。">
                                                         <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
                                                         <input type="hidden" name="action" value="archive_ledger">
                                                         <input type="hidden" name="ledger_id" value="<?php echo h((string) $ledger['id']); ?>">
@@ -225,6 +225,6 @@ $archivedCount = (int) ($stmt->fetch()['archived_count'] ?? 0);
         </div>
     </div>
 
-        <script src="./assets/app.js"></script>
+    <script src="./assets/app.js?v=30"></script>
 </body>
 </html>

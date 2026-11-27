@@ -171,7 +171,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
     $stmt = $pdo->prepare('
         UPDATE recurring_entries
         SET name = :name, amount_cents = :amount_cents, type = :type, category = :category,
-            start_date = :start_date, next_due_date = :next_due_date, updated_at = datetime('now', 'localtime')
+            start_date = :start_date, next_due_date = :next_due_date, updated_at = datetime(\'now\', \'localtime\')
         WHERE id = :id AND ledger_id = :ledger_id
     ');
     $stmt->execute([
@@ -208,7 +208,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
         redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('僅建立者或帳本擁有者可停用重複記錄。'));
     }
 
-    $stmt = $pdo->prepare('UPDATE recurring_entries SET is_active = 0, updated_at = datetime('now', 'localtime') WHERE id = :id AND ledger_id = :ledger_id');
+    $stmt = $pdo->prepare('UPDATE recurring_entries SET is_active = 0, updated_at = datetime(\'now\', \'localtime\') WHERE id = :id AND ledger_id = :ledger_id');
     $stmt->execute([':id' => $recurringId, ':ledger_id' => $ledgerId]);
     logAudit('recurring_toggle', 'recurring_id=' . $recurringId . ' ledger_id=' . $ledgerId . ' action=disable');
     redirect('./ledger.php?ledger_id=' . $ledgerId . '&success=1&msg=' . urlencode('重複記錄已停用。'));
@@ -240,8 +240,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
             (ledger_id, user_id, amount_cents, type, category, entry_date, note, receipt_path, deleted, recurring_source_id,
              currency, exchange_rate, original_amount_cents)
         VALUES
-            (:ledger_id, :user_id, :amount_cents, :type, :category, :entry_date, :note, '', 0, :recurring_source_id,
-             'TWD', 10000, :amount_cents)
+            (:ledger_id, :user_id, :amount_cents, :type, :category, :entry_date, :note, \'\', 0, :recurring_source_id,
+             \'TWD\', 10000, :amount_cents)
     ');
     $stmt->execute([
         ':ledger_id'       => $ledgerId,
@@ -355,9 +355,9 @@ if ($budgetCents > 0) {
 
 // 重複記錄列表：查詢本帳本啟用中的重複記錄（Feature 11）
 $recurringList = [];
-if ($accessRole === 'owner' || $accessRole === 'admin' || $accessRole === 'member') {
+if ($accessRole === 'owner' || $accessRole === 'admin' || $accessRole === 'member' || $accessRole === 'viewer') {
     $recStmt = $pdo->prepare('
-        SELECT re.id, re.name, re.amount_cents, re.type, re.category, re.start_date, re.next_due_date, re.is_active, re.created_at, u.username AS creator
+        SELECT re.id, re.user_id, re.name, re.amount_cents, re.type, re.category, re.start_date, re.next_due_date, re.is_active, re.created_at, u.username AS creator
         FROM recurring_entries re
         INNER JOIN users u ON u.id = re.user_id
         WHERE re.ledger_id = :ledger_id
@@ -397,16 +397,17 @@ if ($page > $totalPages) {
 $offset = ($page - 1) * $perPage;
 
 $stmt = $pdo->prepare("
+    WITH page_entries AS (
+        SELECT e.* FROM entries e $where ORDER BY e.entry_date DESC, e.id DESC LIMIT :limit OFFSET :offset
+    )
     SELECT e.id, e.entry_date, e.type, e.category, e.amount_cents, e.note, e.receipt_path, e.ack_status, e.ack_user_id, e.ack_at, e.user_id, u.username,
-           e.currency, e.exchange_rate, e.original_amount_cents,
+           e.currency, e.exchange_rate, e.original_amount_cents, e.transfer_pair_id,
            ec.id AS comment_id, ec.comment, ec.created_at AS comment_created_at, cu.username AS comment_user
-    FROM entries e
+    FROM page_entries e
     INNER JOIN users u ON u.id = e.user_id
     LEFT JOIN entry_comments ec ON ec.entry_id = e.id
     LEFT JOIN users cu ON cu.id = ec.user_id
-    $where
-    ORDER BY e.entry_date DESC, e.id DESC, ec.created_at DESC
-    LIMIT :limit OFFSET :offset
+    ORDER BY e.entry_date DESC, e.id DESC, ec.created_at DESC, ec.id DESC
 ");
 $allParams = $params + [':limit' => $perPage, ':offset' => $offset];
 foreach ($allParams as $key => $value) {
@@ -423,21 +424,22 @@ foreach ($rows as $row) {
     if (!isset($entries[$eid])) {
         // 只保留 entry 欄位（去除 comment 欄位）
         $entries[$eid] = [
-            'id'           => $row['id'],
-            'entry_date'   => $row['entry_date'],
-            'type'         => $row['type'],
-            'category'     => $row['category'],
-            'amount_cents' => $row['amount_cents'],
-            'note'         => $row['note'],
-            'receipt_path' => $row['receipt_path'],
-            'ack_status'   => $row['ack_status'],
-            'ack_user_id'  => $row['ack_user_id'],
-            'ack_at'       => $row['ack_at'],
-            'user_id'      => $row['user_id'],
-            'username'     => $row['username'],
-            'currency'     => $row['currency'] ?? 'TWD',
-            'exchange_rate' => $row['exchange_rate'] ?? 10000,
+            'id'                => $row['id'],
+            'entry_date'        => $row['entry_date'],
+            'type'              => $row['type'],
+            'category'          => $row['category'],
+            'amount_cents'      => $row['amount_cents'],
+            'note'              => $row['note'],
+            'receipt_path'      => $row['receipt_path'],
+            'ack_status'        => $row['ack_status'],
+            'ack_user_id'       => $row['ack_user_id'],
+            'ack_at'            => $row['ack_at'],
+            'user_id'           => $row['user_id'],
+            'username'          => $row['username'],
+            'currency'          => $row['currency'] ?? 'TWD',
+            'exchange_rate'     => $row['exchange_rate'] ?? 10000,
             'original_amount_cents' => $row['original_amount_cents'] ?? 0,
+            'transfer_pair_id'  => $row['transfer_pair_id'] ?? null,
         ];
     }
     // 收集留言
@@ -463,7 +465,7 @@ $stmt = $pdo->prepare('
     SELECT COUNT(*) FROM entries e
     WHERE e.ledger_id = :ledger_id
       AND e.deleted = 0
-      AND e.type = 'transfer'
+      AND e.type = \'transfer\'
       AND e.transfer_pair_id IS NULL
 ');
 $stmt->execute([':ledger_id' => $ledgerId]);
@@ -596,7 +598,7 @@ if (!empty($_SESSION['voice_played'])) {
                         <?php if ($canWrite): ?>
                             <a href="./import_csv.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📤 匯入 CSV 明細</a>
                         <?php endif; ?>
-                        <a href="./export_pdf.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📄 匯出 PDF 月結單</a>
+                        <a href="./export_pdf.php?ledger_id=<?php echo h((string) $ledgerId); ?>&amp;ym=<?php echo h($ym); ?>" class="btn">🖨 列印月結單</a>
                         <a href="./yearly_report.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📊 年度報表</a>
                         <a href="./quarterly_report.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📈 季度報表</a>
                         <a href="./comparison_report.php?ledger_id=<?php echo h((string) $ledgerId); ?>" class="btn">📊 收支比較報表</a>
@@ -609,7 +611,7 @@ if (!empty($_SESSION['voice_played'])) {
                     <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: center;">
                         <label style="display: flex; align-items: center; gap: 6px; font-size: 0.875rem;">
                             <span>匯出月份：</span>
-                            <select name="export_ym" id="exportYmSelect" class="select" style="width: auto; min-width: 140px;" onchange="updateExportLinks()">
+                            <select name="export_ym" id="exportYmSelect" class="select" style="width: auto; min-width: 140px;">
                                 <?php
                                 // 產生最近 24 個月的選項
                                 $dt = new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei'));
@@ -625,25 +627,6 @@ if (!empty($_SESSION['voice_played'])) {
                         </label>
                         <span class="meta" id="exportYmHint" style="font-size: 0.75rem;">CSV/JSON 匯出將使用此月份</span>
                     </div>
-                    
-                    <script>
-                    function updateExportLinks() {
-                        const ym = document.getElementById('exportYmSelect').value;
-                        // 更新 CSV/JSON 匯出連結的 ym 參數
-                        const csvLink = document.querySelector('a[href*="export_csv.php"][href*="format=csv"]');
-                        const jsonLink = document.querySelector('a[href*="export_csv.php"][href*="format=json"]');
-                        if (csvLink) {
-                            const url = new URL(csvLink.href, window.location.origin);
-                            url.searchParams.set('ym', ym);
-                            csvLink.href = url.pathname + url.search;
-                        }
-                        if (jsonLink) {
-                            const url = new URL(jsonLink.href, window.location.origin);
-                            url.searchParams.set('ym', ym);
-                            jsonLink.href = url.pathname + url.search;
-                        }
-                    }
-                    </script>
                 </div>
 
                 <?php if ($success): ?>
@@ -786,8 +769,8 @@ if (!empty($_SESSION['voice_played'])) {
                                     <?php $isRecurringOwner = ((int) $rec['user_id'] === $userId); ?>
                                     <?php if ($isRecurringOwner || $accessRole === 'owner' || $accessRole === 'admin'): ?>
                                     <div class="ctr-actions">
-                                        <button type="button" class="btn secondary sm" data-recurring-id="<?php echo (int) $rec['id']; ?>" data-name="<?php echo h($rec['name']); ?>" data-amount-cents="<?php echo h((string) $rec['amount_cents']); ?>" data-type="<?php echo h($rec['type']); ?>" data-category="<?php echo h($rec['category']); ?>" data-start-date="<?php echo h($rec['start_date']); ?>" data-next-due-date="<?php echo h($rec['next_due_date']); ?>" onclick="openEditRecurringFromElement(this);">編輯</button>
-                                        <form method="POST" action="./ledger.php?ledger_id=<?php echo h((string) $ledgerId); ?>" onsubmit="return confirm('確定要停用這個重複記錄嗎？');" style="display:inline;">
+                                        <button type="button" class="btn secondary sm" data-recurring-id="<?php echo (int) $rec['id']; ?>" data-name="<?php echo h($rec['name']); ?>" data-amount-cents="<?php echo h((string) $rec['amount_cents']); ?>" data-type="<?php echo h($rec['type']); ?>" data-category="<?php echo h($rec['category']); ?>" data-start-date="<?php echo h($rec['start_date']); ?>" data-next-due-date="<?php echo h($rec['next_due_date']); ?>">編輯</button>
+                                        <form method="POST" action="./ledger.php?ledger_id=<?php echo h((string) $ledgerId); ?>" data-confirm="確定要停用這個重複記錄嗎？" style="display:inline;">
                                             <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
                                             <input type="hidden" name="action" value="toggle_recurring">
                                             <input type="hidden" name="recurring_id" value="<?php echo h((string) $rec['id']); ?>">
@@ -915,14 +898,16 @@ if (!empty($_SESSION['voice_played'])) {
                     <h3>本月類別支出統計</h3>
                     <?php
                     try {
-                    ?>
-                    <svg class="category-chart" viewBox="0 0 600 300" role="img" aria-labelledby="category-chart-title">
-                        <title id="category-chart-title">本月各類別支出佔比</title>
-                        <?php
                         $barHeight = 30;
                         $gap = 10;
                         $maxWidth = 500;
                         $y = 20;
+                        $stride = $barHeight + $gap;
+                        $svgHeight = max(300, $y + count($categoryStats) * $stride);
+                    ?>
+                    <svg class="category-chart" viewBox="0 0 600 <?php echo h((string) $svgHeight); ?>" role="img" aria-labelledby="category-chart-title">
+                        <title id="category-chart-title">本月各類別支出佔比</title>
+                        <?php
                         foreach ($categoryStats as $stat) {
                             $percent = $categoryTotalCents > 0 ? ($stat['cents'] / $categoryTotalCents) * 100 : 0;
                             $barWidth = $maxWidth * ($percent / 100);
@@ -931,7 +916,7 @@ if (!empty($_SESSION['voice_played'])) {
                             echo '<rect x="80" y="' . (int) $y . '" width="' . (int) $barWidth . '" height="' . (int) $barHeight . '" fill="var(--blue)" rx="2" />';
                             echo '<text x="75" y="' . (int) ($y + $barHeight / 2 + 5) . '" text-anchor="end" font-size="12" fill="#23272b">' . $label . '</text>';
                             echo '<text x="' . (int) (80 + $barWidth + 5) . '" y="' . (int) ($y + $barHeight / 2 + 5) . '" font-size="12" fill="#23272b">' . $amount . ' 元 (' . (int) $percent . '%)</text>';
-                            $y += $barHeight + $gap;
+                            $y += $stride;
                         }
                         ?>
                     </svg>
@@ -999,7 +984,7 @@ if (!empty($_SESSION['voice_played'])) {
                     </div>
                 </div>
                 <?php endif; ?>
-                <?php elseif (!$isFiltered && $typeSel !== 'income' && $totalEntries === 0): ?>
+                <?php elseif (!$isFiltered && $typeSel !== 'income'): ?>
                 <p class="empty">尚無支出紀錄。</p>
                 <?php endif; ?>
 
@@ -1017,7 +1002,7 @@ if (!empty($_SESSION['voice_played'])) {
                                     <th class="num hide-m">原幣金額</th>
                                     <th class="num hide-m">匯率</th>
                                     <th class="num">台幣金額</th>
-                                    <th class="receipt-col hide-m">收據</th>
+                                    <th class="receipt-col">收據</th>
                                     <th class="hide-m">備註</th>
                                     <th class="ctr">確認狀態</th>
                                     <th class="ctr">留言</th>
@@ -1029,12 +1014,17 @@ if (!empty($_SESSION['voice_played'])) {
                                     $eid = (int) $entry['id'];
                                     $comments = $commentsByEntry[$eid] ?? [];
                                     $commentCount = count($comments);
-                                    $curr = $entry['currency'] ?? 'TWD';
-                                    $origAmt = $entry['original_amount_cents'] ?? 0;
-                                    $rate = $entry['exchange_rate'] ?? 10000;
+                                    $curr = (string) ($entry['currency'] ?? 'TWD');
+                                    $origAmt = displayOriginalCents((int) ($entry['original_amount_cents'] ?? 0), (int) $entry['amount_cents'], $curr);
+                                    $rate = (int) ($entry['exchange_rate'] ?? 10000);
                                 ?>
                                     <tr>
-                                        <td><span class="vno <?php echo $entry['type'] === 'income' ? 'in' : ($entry['type'] === 'expense' ? 'out' : 'plain'); ?>"><?php echo $entry['type'] === 'income' ? '收' : ($entry['type'] === 'expense' ? '支' : '轉'); ?>-<?php echo h(str_pad((string) $entry['id'], 3, '0', STR_PAD_LEFT)); ?></span></td>
+                                        <td>
+                                            <span class="vno <?php echo $entry['type'] === 'income' ? 'in' : ($entry['type'] === 'expense' ? 'out' : 'plain'); ?>"><?php echo $entry['type'] === 'income' ? '收' : ($entry['type'] === 'expense' ? '支' : '轉'); ?>-<?php echo h(str_pad((string) $entry['id'], 3, '0', STR_PAD_LEFT)); ?></span>
+                                            <?php if ($entry['type'] === 'transfer' && $entry['transfer_pair_id'] !== null): ?>
+                                                <span class="meta">已配對</span>
+                                            <?php endif; ?>
+                                        </td>
                                         <td class="mono"><?php echo h($entry['entry_date']); ?></td>
                                         <td><?php echo h($entry['username']); ?></td>
                                         <td><?php echo h($entry['category']); ?></td>
@@ -1042,9 +1032,9 @@ if (!empty($_SESSION['voice_played'])) {
                                         <td class="num hide-m mono"><?php echo h(formatForeignAmount($origAmt, $curr)); ?></td>
                                         <td class="num hide-m mono"><?php echo h(formatExchangeRate($rate)); ?></td>
                                         <td class="num <?php echo $entry['type'] === 'income' ? 'amt-in' : ($entry['type'] === 'expense' ? 'amt-out' : 'amt-neutral'); ?>"><?php echo h(($entry['type'] === 'income' ? '+' : ($entry['type'] === 'expense' ? '-' : '')) . formatCents((int) $entry['amount_cents'])); ?></td>
-                                        <td class="receipt-col hide-m ctr">
+                                        <td class="receipt-col ctr">
                                             <?php if (!empty($entry['receipt_path'])): ?>
-                                                <a href="./view_receipt.php?id=<?php echo h((string) $entry['id']); ?>" class="receipt-thumb" target="_blank" rel="noopener noreferrer" title="檢視收據">
+                                                <a href="./view_receipt.php?id=<?php echo h((string) $entry['id']); ?>&amp;mode=inline" class="receipt-thumb" target="_blank" rel="noopener noreferrer" title="檢視收據">
                                                     <img src="./view_receipt.php?id=<?php echo h((string) $entry['id']); ?>&mode=inline" alt="收據" loading="lazy" width="48" height="48">
                                                 </a>
                                             <?php else: ?>
@@ -1081,20 +1071,20 @@ if (!empty($_SESSION['voice_played'])) {
                                             ?>
                                             <?php if ($canAck): ?>
                                             <div class="ctr-actions">
-                                                <form method="POST" action="./entry_ack.php" style="display:inline;" onsubmit="return confirm('確定要確認這筆記錄是您花的嗎？');">
+                                                <form method="POST" action="./entry_ack.php" style="display:inline;" data-confirm="確定要確認這筆記錄是您花的嗎？">
                                                     <input type="hidden" name="entry_id" value="<?php echo h((string) $entry['id']); ?>">
                                                     <input type="hidden" name="action" value="confirm">
                                                     <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
                                                     <button type="submit" class="btn secondary sm">確認</button>
                                                 </form>
-                                                <form method="POST" action="./entry_ack.php" style="display:inline;" onsubmit="return confirm('確定要標記這筆記錄為有爭議嗎？');">
+                                                <form method="POST" action="./entry_ack.php" style="display:inline;" data-confirm="確定要標記這筆記錄為有爭議嗎？">
                                                     <input type="hidden" name="entry_id" value="<?php echo h((string) $entry['id']); ?>">
                                                     <input type="hidden" name="action" value="dispute">
                                                     <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
                                                     <button type="submit" class="btn danger sm">爭議</button>
                                                 </form>
                                                 <a href="./edit_entry.php?ledger_id=<?php echo h((string) $ledgerId); ?>&id=<?php echo h((string) $entry['id']); ?>" class="btn secondary sm">編輯</a>
-                                                <form method="POST" action="./delete_entry.php" onsubmit="return confirm('確定要作廢這筆記錄嗎？');" style="display:inline;">
+                                                <form method="POST" action="./delete_entry.php" data-confirm="確定要作廢這筆記錄嗎？" style="display:inline;">
                                                     <input type="hidden" name="id" value="<?php echo h((string) $entry['id']); ?>">
                                                     <input type="hidden" name="ledger_id" value="<?php echo h((string) $ledgerId); ?>">
                                                     <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
@@ -1213,7 +1203,7 @@ if (!empty($_SESSION['voice_played'])) {
             </div>
             <div style="margin-top: var(--space-4); display:flex; gap: var(--space-3);">
                 <button type="submit" class="btn primary">儲存變更</button>
-                <button type="button" class="btn secondary" onclick="closeEditRecurring()">取消</button>
+                <button type="button" class="btn secondary" data-close-recurring>取消</button>
             </div>
         </form>
     </div>
@@ -1242,6 +1232,6 @@ if (!empty($_SESSION['voice_played'])) {
             margin-top: 0;
         }
     </style>
-    <script src="./assets/app.js"></script>
+    <script src="./assets/app.js?v=30"></script>
 </body>
 </html>

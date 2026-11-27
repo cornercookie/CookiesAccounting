@@ -71,18 +71,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($ext !== 'csv') {
                     $error = '僅允許 .csv 副檔名的檔案。';
                 } else {
-                    // MIME type 驗證（finfo_file，防止偽裝副檔名的惡意檔案）
-                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
-                    if ($finfo === false) {
+                    // MIME type 驗證。沒有 fileinfo 擴充時不得呼叫 finfo_open()，否則會 500。
+                    // 副檔名已確認是 .csv，此時改以 text/plain 放行並寫入 error.log。
+                    $allowedMime = ['text/csv', 'text/plain', 'application/csv'];
+                    $mime = '';
+                    if (!function_exists('finfo_open')) {
                         logError('csv import: finfo_open failed (fileinfo extension unavailable)');
-                        $error = '系統錯誤：無法驗證檔案類型。';
+                        $mime = 'text/plain';
                     } else {
-                        $mime = finfo_file($finfo, $tmpName);
-                        finfo_close($finfo);
-                        $allowedMime = ['text/csv', 'text/plain', 'application/csv'];
-                        if (!in_array($mime, $allowedMime, true)) {
-                            $error = '檔案類型不允許，請上傳有效的 CSV 檔案。';
+                        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                        if ($finfo === false) {
+                            logError('csv import: finfo_open failed (fileinfo extension unavailable)');
+                            $error = '系統錯誤：無法驗證檔案類型。';
                         } else {
+                            $mime = finfo_file($finfo, $tmpName);
+                            finfo_close($finfo);
+                        }
+                    }
+                    if ($error === '' && !in_array($mime, $allowedMime, true)) {
+                        $error = '檔案類型不允許，請上傳有效的 CSV 檔案。';
+                    } elseif ($error === '') {
                             // 開始匯入
                             $successCount = 0;
                             $failedCount  = 0;
@@ -98,7 +106,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $headerSkipped = false;
                                 $bomRemoved    = false;
                                 $dataRowCount  = 0;              // 資料列計數（不含標題行）
-                                const MAX_CSV_ROWS = 10000;      // 最大資料列數，防禦 DoS
+                                $maxCsvRows = 10000;      // 最大資料列數，防禦 DoS
 
                                 // CSV 公式注入防護前綴字元（同 export_csv.php）
                                 $formulaPrefixes = ['=', '+', '-', '@', "\t", "\r"];
@@ -109,8 +117,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     // 最大資料列數限制（不含標題行），防禦超大檔 DoS
                                     if ($headerSkipped) {
                                         $dataRowCount++;
-                                        if ($dataRowCount > MAX_CSV_ROWS) {
-                                            $error = 'CSV 資料列數超過上限（' . MAX_CSV_ROWS . ' 筆），請拆分檔案後再匯入。';
+                                        if ($dataRowCount > $maxCsvRows) {
+                                            $error = 'CSV 資料列數超過上限（' . $maxCsvRows . ' 筆），請拆分檔案後再匯入。';
                                             break;
                                         }
                                     }
@@ -283,10 +291,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
             }
-        }
-    }
-}
-?>
+            }
+            }
+            ?>
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>

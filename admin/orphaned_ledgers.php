@@ -173,7 +173,7 @@ $allUsers = $pdo->query('SELECT id, username FROM users ORDER BY username')->fet
                                         <td class="hide-m"><?php echo h($ledger['created_at']); ?></td>
                                         <td class="ctr">
                                             <?php if ($allUsers): ?>
-                                                <form method="POST" action="./orphaned_ledgers.php" style="margin: 0;" onsubmit="return confirm('重新指定擁有者？新擁有者會取得 owner 權限。');">
+                                                <form method="POST" action="./orphaned_ledgers.php" style="margin: 0;" data-confirm="重新指定擁有者？新擁有者會取得 owner 權限。">
                                                     <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
                                                     <input type="hidden" name="action" value="reassign_owner">
                                                     <input type="hidden" name="ledger_id" value="<?php echo h((string) $ledger['id']); ?>">
@@ -199,5 +199,6 @@ $allUsers = $pdo->query('SELECT id, username FROM users ORDER BY username')->fet
             </main>
         </div>
     </div>
+    <script src="../assets/app.js?v=30"></script>
 </body>
 </html>

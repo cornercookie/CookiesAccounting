@@ -237,7 +237,7 @@ if ($editId !== false && $editId !== null) {
                             <div class="field field-full">
                                 <label for="monthly_budget" class="label">每月預算（元）</label>
                                 <input type="text" name="monthly_budget" id="monthly_budget" class="input mono" inputmode="decimal" pattern="\d+(\.\d{1,2})?" placeholder="例：6000" required
-                                    value="<?php echo $editBudget ? h(formatCents((int) $editBudget['monthly_budget_cents'])) : ''; ?>">
+                                    value="<?php echo $editBudget ? h(formatCentsPlain((int) $editBudget['monthly_budget_cents'])) : ''; ?>">
                             </div>
                         </div>
                         <button type="submit" class="btn primary"><?php echo $editBudget ? '更新' : '設定'; ?></button>
@@ -274,7 +274,7 @@ if ($editId !== false && $editId !== null) {
                                     <td class="ctr">
                                         <div class="ctr-actions">
                                             <a href="./category_budget.php?ledger_id=<?php echo h((string) $ledgerId); ?>&edit_id=<?php echo h((string) $b['id']); ?>" class="btn secondary sm">編輯</a>
-                                            <form method="POST" action="./category_budget.php?ledger_id=<?php echo h((string) $ledgerId); ?>" onsubmit="return confirm('確定要停用這個類別預算嗎？');" style="display:inline;">
+                                            <form method="POST" action="./category_budget.php?ledger_id=<?php echo h((string) $ledgerId); ?>" data-confirm="確定要停用這個類別預算嗎？" style="display:inline;">
                                                 <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
                                                 <input type="hidden" name="action" value="disable">
                                                 <input type="hidden" name="id" value="<?php echo h((string) $b['id']); ?>">
@@ -301,6 +301,6 @@ if ($editId !== false && $editId !== null) {
             </main>
         </div>
     </div>
-    <script src="./assets/app.js"></script>
+    <script src="./assets/app.js?v=30"></script>
 </body>
 </html>

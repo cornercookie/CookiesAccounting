@@ -276,10 +276,10 @@ erDiagram
 **索引**：
 - `idx_category_budgets_ledger_active` (ledger_id, is_active) — 查詢該帳本所有啟用/停用預算
 - `idx_category_budgets_ledger_category` (ledger_id, category) — 查詢該帳本特定類別預算
-- `uq_category_budgets_ledger_category_active` (ledger_id, category, is_active) **UNIQUE** — [#26] 同一帳本同一類別同一啟用狀態不得重複
+- `uq_category_budgets_active_only` (ledger_id, category) **UNIQUE WHERE is_active = 1** — [#26] 同一帳本、同一類別只允許一筆啟用預算
 
 **資料完整性**：
-- 唯一索引 `uq_category_budgets_ledger_category_active` 確保同一帳本同一類別不會有多筆啟用中（`is_active=1`）預算並存
+- 唯一索引 `uq_category_budgets_active_only` 不限制停用列；遷移在同一交易先建立新索引，再移除舊索引 `uq_category_budgets_ledger_category_active`。
 - `is_active=0` 視為軟刪除，允許歷史記錄保留（同一類別可有一筆啟用中與多筆停用並存）
 - 應用層 INSERT 前檢查 `is_active=1` 重複 + DB 唯一索引雙重保障，防禦競態條件
 
@@ -358,6 +358,7 @@ erDiagram
 | v7 | 2026-11 | 新增 category_budgets 表（類別預算 [#19]） | 向前相容，冪等性守衛 |
 | v8 | 2026-11 | category_budgets 新增唯一索引 `uq_category_budgets_ledger_category_active` [#26] | 向前相容，try-catch 守衛不中斷 |
 | v9 | 2026-11 | [#29] 確認 `recurring_entries` 表無多幣別三欄位（currency / exchange_rate / original_amount_cents），`entries` 表已由 [#24] 新增三欄位；無資料庫異動，僅文件記錄 | 無異動，文件化既有設計決策 |
+| v10 | 2026-11 | [#26] 預算唯一索引切換至 `uq_category_budgets_active_only` | 保留原資料與多筆停用歷史 |
 
 > **遷移原則**：`ensureSchema()` 在每次 `getPdo()` 執行，所有 ALTER 皆有冪等性守衛（檢查欄位/索引是否存在）。
 
@@ -413,7 +414,7 @@ erDiagram
 | 重複記錄：下次到期查詢 | `idx_recurring_entries_next_due` | 儀表板提醒 |
 | 分錄留言：依分錄查詢 | `idx_entry_comments_entry_id` + `idx_entry_comments_deleted` | LEFT JOIN entries 避免 N+1，WHERE deleted=0 |
 | 類別預算：帳本啟用中預算列表 | `idx_category_budgets_ledger_active` (ledger_id, is_active) | WHERE ledger_id + is_active=1 |
-| 類別預算：重複檢查（應用層/DB 唯一） | `uq_category_budgets_ledger_category_active` (ledger_id, category, is_active) | 唯一約束檢查、最左前綴覆蓋 ledger_id+category |
+| 類別預算：啟用時重複檢查 | `uq_category_budgets_active_only` (ledger_id, category) | 索引條件 `WHERE is_active = 1` |
 
 ---
 
@@ -428,7 +429,7 @@ erDiagram
 | **審計不可刪除** | `audit_log` 無 DELETE 權限，僅管理員可讀 |
 | **密碼變更失效 Session** | `users.password_changed_at` 更新，`requireSessionFresh()` 檢查並銷毀舊 Session |
 | **至少一位管理員** | `admin/users.php` 刪除/變更角色時檢查 `COUNT(*) WHERE role='admin'` |
-| **類別預算唯一性** | `uq_category_budgets_ledger_category_active` (ledger_id, category, is_active) UNIQUE 索引 + 應用層 INSERT 前檢查，雙重保障防禦競態條件 [#26] |
+| **類別預算唯一性** | `uq_category_budgets_active_only` 部分唯一索引，加上應用層 INSERT 前檢查；只約束啟用中預算 [#26] |
 
 ---
 

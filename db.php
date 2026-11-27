@@ -20,6 +20,11 @@ require_once __DIR__ . '/config.php';
  */
 function getPdo(): PDO
 {
+    static $cached = null;
+    if ($cached instanceof PDO) {
+        return $cached;
+    }
+
     if (!extension_loaded('pdo_sqlite')) {
         throw new RuntimeException(
             'The pdo_sqlite PHP extension is not available on this host. ' .
@@ -47,6 +52,7 @@ function getPdo(): PDO
     ensureSchema($pdo);
     seedAdmin($pdo);
 
+    $cached = $pdo;
     return $pdo;
 }
 
@@ -163,11 +169,22 @@ SQL);
 $row = $pdo->query("SELECT sql FROM sqlite_master WHERE type='table' AND name='entries'")->fetch();
 $currentSql = $row === false ? '' : (string) ($row['sql'] ?? '');
 if (!str_contains($currentSql, "'transfer'")) {
+    // 舊庫可能已有幣別／確認／配對欄位。SELECT * 進較窄的新表會失敗並回滾，
+    // 轉帳 CHECK 就永遠加不上去，而且一旦欄位數碰巧相同還會丟欄位。
+    $fkWasOn = (int) $pdo->query('PRAGMA foreign_keys')->fetchColumn() === 1;
+    if ($fkWasOn) {
+        $pdo->exec('PRAGMA foreign_keys=OFF');
+    }
     $pdo->exec('BEGIN IMMEDIATE');
     try {
-        $pdo->exec(<<<'SQL'
-DROP TABLE IF EXISTS entries_temp;
-SQL);
+        $have = [];
+        foreach ($pdo->query('PRAGMA table_info(entries)')->fetchAll(PDO::FETCH_ASSOC) as $col) {
+            $name = (string) ($col['name'] ?? '');
+            if ($name !== '') {
+                $have[$name] = true;
+            }
+        }
+        $pdo->exec('DROP TABLE IF EXISTS entries_temp');
         $pdo->exec(<<<'SQL'
 CREATE TABLE entries_temp (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -181,11 +198,33 @@ CREATE TABLE entries_temp (
     receipt_path  TEXT    NOT NULL DEFAULT '',
     deleted       INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+    currency      TEXT    NOT NULL DEFAULT 'TWD',
+    exchange_rate INTEGER NOT NULL DEFAULT 10000,
+    original_amount_cents INTEGER NOT NULL DEFAULT 0,
+    transfer_pair_id INTEGER,
+    recurring_source_id INTEGER,
+    ack_status    TEXT    NOT NULL DEFAULT 'pending' CHECK (ack_status IN ('pending','confirmed','disputed')),
+    ack_user_id   INTEGER,
+    ack_at        TEXT,
     FOREIGN KEY (ledger_id) REFERENCES ledgers(id),
     FOREIGN KEY (user_id)   REFERENCES users(id)
 );
 SQL);
-        $pdo->exec('INSERT INTO entries_temp SELECT * FROM entries');
+        $targetCols = [
+            'id', 'ledger_id', 'user_id', 'amount_cents', 'type', 'category', 'entry_date',
+            'note', 'receipt_path', 'deleted', 'created_at', 'currency', 'exchange_rate',
+            'original_amount_cents', 'transfer_pair_id', 'recurring_source_id',
+            'ack_status', 'ack_user_id', 'ack_at',
+        ];
+        $copyCols = array_values(array_filter(
+            $targetCols,
+            static fn(string $name): bool => isset($have[$name])
+        ));
+        if ($copyCols === []) {
+            throw new RuntimeException('entries migration found no columns to copy');
+        }
+        $colList = implode(', ', $copyCols);
+        $pdo->exec('INSERT INTO entries_temp (' . $colList . ') SELECT ' . $colList . ' FROM entries');
         $pdo->exec('DROP TABLE entries');
         $pdo->exec('ALTER TABLE entries_temp RENAME TO entries');
         $pdo->exec(<<<'SQL'
@@ -193,11 +232,18 @@ CREATE INDEX IF NOT EXISTS idx_entries_ledger_id ON entries(ledger_id);
 CREATE INDEX IF NOT EXISTS idx_entries_user_id ON entries(user_id);
 CREATE INDEX IF NOT EXISTS idx_entries_entry_date_deleted ON entries(entry_date, deleted);
 CREATE INDEX IF NOT EXISTS idx_entries_type ON entries(type);
+CREATE INDEX IF NOT EXISTS idx_entries_transfer_pair_id ON entries(transfer_pair_id);
+CREATE INDEX IF NOT EXISTS idx_entries_ack_status ON entries(ack_status);
 SQL);
         $pdo->exec('COMMIT');
     } catch (Throwable $e) {
-        $pdo->exec('ROLLBACK');
+        if ($pdo->inTransaction()) {
+            $pdo->exec('ROLLBACK');
+        }
         logError('entries.type migration failed: ' . $e->getMessage());
+    }
+    if ($fkWasOn) {
+        $pdo->exec('PRAGMA foreign_keys=ON');
     }
 }
 
@@ -246,15 +292,21 @@ SQL);
         ON category_budgets(ledger_id, category);
 SQL);
     // [#26] 唯一索引：獨立 exec + try-catch，不中斷主流程
-    try {
-        $pdo->exec(<<<'SQL'
-        CREATE UNIQUE INDEX IF NOT EXISTS uq_category_budgets_ledger_category_active
-            ON category_budgets(ledger_id, category, is_active);
-        SQL);
-    } catch (PDOException $e) {
-        logError('[#26] category_budgets 唯一索引建立失敗: ' . $e->getMessage()
-            . ' | 可能原因：既有資料有重複 (ledger_id, category, is_active) 組合記錄（含 is_active=0 或 1），請手動清理');
-        // 不 throw，確保 ensureSchema() 繼續執行後續建表
+    $stmt = $pdo->prepare("SELECT name FROM sqlite_master WHERE type = :type AND tbl_name = :table");
+    $stmt->execute([':type' => 'index', ':table' => 'category_budgets']);
+    $existing = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('uq_category_budgets_active_only', $existing, true) || in_array('uq_category_budgets_ledger_category_active', $existing, true)) {
+        try {
+            $pdo->beginTransaction();
+            $pdo->exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_category_budgets_active_only ON category_budgets(ledger_id, category) WHERE is_active = 1");
+            $pdo->exec("DROP INDEX IF EXISTS uq_category_budgets_ledger_category_active");
+            $pdo->commit();
+        } catch (PDOException $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            logError('[#26] category_budgets 唯一索引遷移失敗: ' . $e->getMessage());
+        }
     }
 
     $pdo->exec(<<<'SQL'
@@ -426,8 +478,8 @@ function seedAdmin(PDO $pdo): void
 {
     $username = ADMIN_USERNAME;
     $password = ADMIN_PASSWORD;
-    if ($username === '' || $password === '') {
-        return; // .env 未設定，不建立種子帳號
+    if ($username === '' || isPlaceholderPassword($password)) {
+        return; // .env 未設定或仍為預設佔位符，不建立種子帳號
     }
 
     $stmt = $pdo->prepare('SELECT id FROM users WHERE username = :username LIMIT 1');

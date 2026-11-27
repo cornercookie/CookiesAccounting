@@ -195,6 +195,8 @@ sequenceDiagram
 | | 審計日誌 | `audit_log` 唯新增不刪除，記錄用戶、動作、細節、IP、時間 |
 | | Session 失效 | 密碼變更時 `password_changed_at` 更新，既有 Session 自動失效 |
 
+**本機並發驗證：** Docker Apache PHP 8.1／8.4 各以兩個獨立登入 Session 對同一本帳簿發出 8 組成對新增請求。每個版本皆得到 16 筆原始分錄、16 筆對應稽核，兩人身份不混淆，金額合計正好 240 分，且 SQLite 確認為 WAL。這是兩用戶情境驗證，不是正式主機壓測。
+
 ---
 
 ## 技術債與演進策略

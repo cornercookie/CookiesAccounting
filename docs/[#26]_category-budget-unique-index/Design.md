@@ -246,7 +246,7 @@ if ($action === 'create') {
 
 | 需求／情境 | 前置條件與操作 | 可判定預期結果 | 驗證方法 |
 | --- | --- | --- | --- |
-| 唯一索引存在於資料庫 | 新建/既有資料庫執行 `ensureSchema()` | `sqlite_master` 含 `uq_category_budgets_ledger_category_active` | `sqlite3 private_data/xxx.db ".indexes category_budgets"` |
+| 唯一索引存在於資料庫 | 新建／既有資料庫執行 `ensureSchema()` | `sqlite_master` 含僅約束啟用預算的 `uq_category_budgets_active_only`；舊索引已移除 | 以隔離 SQLite 查詢索引定義 |
 | 新建資料庫建表含唯一索引 | 刪除資料庫檔案，重新執行 `getPdo()` | 表建立、索引建立、無錯誤 | 檢查 DB 結構、error.log 無遷移錯誤 |
 | 既有資料庫 ALTER 路徑 | 既有資料庫無唯一索引，執行 `getPdo()` | 索引建立成功、現有資料無違反唯一性 | 同上 |
 | 既有資料有重複 is_active=1 | 人工製造重複資料，執行 `getPdo()` | 索引建立失敗、error.log 記錄錯誤、主流程不中斷 | 檢查 error.log、頁面仍可存取 |
@@ -257,6 +257,12 @@ if ($action === 'create') {
 | 錯誤訊息一致性 | 應用層檢查失敗 vs DB 唯一約束失敗 | 兩者顯示完全相同的友善錯誤訊息（「此類別預算已存在，請編輯現有記錄。」） | 瀏覽器對比 |
 | PHP 語法檢查通過 | `php -l db.php`、`php -l category_budget.php` | 無語法錯誤 | 指令執行 |
 | 既有功能回歸 | ledger.php、dashboard.php 類別預警顯示 | 維持既有行為、不顯著增加載入時間 | 瀏覽器回歸檢查 |
+
+### 現行索引與本機驗證結果
+
+現行 `db.php` 在交易內先建立 `(ledger_id, category) WHERE is_active = 1` 的唯一索引，再移除原本也會限制停用資料的三欄索引。允許多筆停用歷史，仍只容許一筆啟用預算。舊三欄索引是遷移起點，不是現行約束。
+
+`tests/test_budget_migration.py` 從含既有啟用／停用資料的舊索引開始，經正常 HTTP 請求觸發遷移，確認兩筆原資料及 ID 保留、可連續停用、重複表單被拒。兩個獨立 SQLite 連線同時新增，同一類別只有一筆提交成功，另一筆收到唯一性約束。通過靜態審查及 PHP／SQLite 獨立與整合實測；此結果不是 200 筆 HTTP 負載測試。
 
 ---
 

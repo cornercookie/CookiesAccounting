@@ -78,7 +78,7 @@ graph TB
 
 | 頁面/功能 | 檔案 | 類型 | 權限 | 說明 |
 |-----------|------|------|------|------|
-| **登入/登出** | `login.php`, `logout.php` | 公開頁面 | 無需登入 | Session 建立/銷毀、CSRF Token 初始化 |
+| **登入/登出** | `login.php`, `logout.php` | 公開頁面 | 無需登入 | Session 建立/銷毀、CSRF Token 初始化；[#31] 缺 `pdo_sqlite` 時登入頁回 503、提示啟用且不受理表單 |
 | **儀表板** | `dashboard.php` | 受保護頁面 | 登入用戶 | 多帳本本月收支總覽、預算警示、重複記錄提醒 |
 | **帳本列表** | `ledgers.php` | 受保護頁面 | 登入用戶 | 建立帳本、封存/還原、列出可存取帳本 |
 | **帳本詳情** | `ledger.php` | 受保護頁面 | 登入用戶（ledger_access） | 本月彙總、篩選、分頁記錄、預算設定、重複記錄管理 |
@@ -86,8 +86,8 @@ graph TB
 | **編輯記錄** | `edit_entry.php` | 受保護頁面 | owner/member | 修改既有記錄 |
 | **作廢記錄** | `delete_entry.php` | 受保護頁面 | owner/member | 軟刪除（`deleted=1`） |
 | **匯入 CSV** | `import_csv.php` | 受保護頁面 | owner/member | 批次匯入收支記錄 |
-| **匯出 CSV** | `export_csv.php` | 受保護頁面 | 登入用戶 | 匯出帳本明細 |
-| **匯出 PDF** | `export_pdf.php` | 受保護頁面 | 登入用戶 | 月結單 PDF |
+| **匯出 CSV／JSON** | `export_csv.php` | 受保護下載 | 有帳本讀取權限的登入用戶 | 匯出指定月份的帳本明細；CSV 使用 UTF-8 BOM、標準欄位引號與既有公式前綴防護，普通欄位內容不做 HTML 編碼 |
+| **列印月結單／傳票** | `export_pdf.php`（相容舊路由） | 受保護頁面 | 未封存帳本的 owner/member/viewer | HTML 列印預覽；不提供伺服器 PDF 下載 |
 | **年/季報表** | `yearly_report.php`, `quarterly_report.php` | 受保護頁面 | 登入用戶 | 跨月統計報表 |
 | **收據檢視** | `view_receipt.php` | 受保護頁面 | 登入用戶（IDOR 檢查） | 私密收據串流、防路徑遍歷 |
 | **AI 解析** | `ai_parse.php` | 受保護頁面 | owner/member | 圖片/文字解析為記帳草稿 |
@@ -167,7 +167,7 @@ Browser (multipart/form-data) → PHP 頁面
     → 亂數重新命名 + chmod 0640
     → 移至 private_data/uploads/
     → 路徑寫入 entries.receipt_path
-    → view_receipt.php 串流輸出（IDOR 檢查、Content-Disposition: attachment）
+    → view_receipt.php 串流輸出（帳本授權檢查；inline 預覽、預設 attachment 下載）
 ```
 
 ---

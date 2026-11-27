@@ -120,7 +120,7 @@ $stmt = $pdo->prepare('
     INNER JOIN ledgers l ON l.id = e.ledger_id
     INNER JOIN ledger_access la ON la.ledger_id = l.id AND la.user_id = :user_id
     INNER JOIN users u ON u.id = e.user_id
-    WHERE e.type = 'transfer'
+    WHERE e.type = \'transfer\'
       AND e.deleted = 0
       AND e.transfer_pair_id IS NULL
     ORDER BY l.name, e.entry_date DESC, e.id DESC
@@ -393,8 +393,8 @@ $flashMsg = is_string($msgRaw) ? $msgRaw : '';
                             </div>
 
                             <div class="ctr-actions">
-                                <button type="submit" class="btn primary" onclick="return confirm('確定要將這兩筆轉帳記錄配對嗎？');">配對</button>
-                                <button type="button" class="btn secondary" onclick="resetPairForm()">重置</button>
+                                <button type="submit" class="btn primary" data-confirm="確定要將這兩筆轉帳記錄配對嗎？">配對</button>
+                                <button type="button" class="btn secondary" id="resetPairButton">重置</button>
                             </div>
                         </div>
                     </form>
@@ -404,61 +404,6 @@ $flashMsg = is_string($msgRaw) ? $msgRaw : '';
         </div>
     </div>
 
-    <script>
-        // 差額預覽邏輯
-        const select1 = document.getElementById('entry_id_1');
-        const select2 = document.getElementById('entry_id_2');
-        const diffPreview = document.getElementById('diffPreview');
-        const diffText = document.getElementById('diffText');
-
-        function updateDiffPreview() {
-            const opt1 = select1.options[select1.selectedIndex];
-            const opt2 = select2.options[select2.selectedIndex];
-
-            if (!opt1.value || !opt2.value) {
-                diffPreview.style.display = 'none';
-                return;
-            }
-
-            if (opt1.value === opt2.value) {
-                diffPreview.style.display = 'none';
-                return;
-            }
-
-            const amt1 = parseInt(opt1.dataset.amount || '0', 10);
-            const amt2 = parseInt(opt2.dataset.amount || '0', 10);
-            const type1 = opt1.dataset.type;
-            const type2 = opt2.dataset.type;
-
-            // 計算差額（絕對值）
-            const diff = Math.abs(amt1 - amt2);
-            const diffStr = formatCents(diff);
-
-            let html = '差額：<strong class="mono">' + diffStr + '</strong> 元';
-            if (diff > 0) {
-                html += ' <span class="warn">(金額不等，配對時將記錄差額)</span>';
-            }
-            diffText.innerHTML = html;
-            diffPreview.style.display = 'block';
-        }
-
-        function formatCents(cents) {
-            const neg = cents < 0;
-            const abs = Math.abs(cents);
-            const dollars = Math.floor(abs / 100);
-            const c = abs % 100;
-            return (neg ? '-' : '') + dollars.toLocaleString() + '.' + c.toString().padStart(2, '0');
-        }
-
-        function resetPairForm() {
-            select1.value = '';
-            select2.value = '';
-            diffPreview.style.display = 'none';
-        }
-
-        select1.addEventListener('change', updateDiffPreview);
-        select2.addEventListener('change', updateDiffPreview);
-    </script>
-    <script src="./assets/app.js"></script>
+    <script src="./assets/app.js?v=30"></script>
 </body>
 </html>

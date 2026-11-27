@@ -126,10 +126,17 @@ function requireAdmin(): void
 
 /**
  * 取得表單 CSRF 欄位值。
+ * 若 Session 中尚未產生 token（如首次 GET 登入頁），則立即產生並儲存，
+ * 確保後續 POST 的 checkCsrf() 能以同一個 token 驗證。
  */
 function csrfToken(): string
 {
-    return (string) ($_SESSION['csrf_token'] ?? '');
+    $token = (string) ($_SESSION['csrf_token'] ?? '');
+    if ($token === '') {
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['csrf_token'] = $token;
+    }
+    return $token;
 }
 
 /**
@@ -155,6 +162,21 @@ function formatCents(int $cents): string
     $centsPart = $abs % 100;
     // 千分位：長輩辨識大面額金額（純顯示，解析不受影響）
     return ($negative ? '-' : '') . number_format($dollars) . '.' . str_pad((string) $centsPart, 2, '0', STR_PAD_LEFT);
+}
+
+/**
+ * 將整數分金額格式化為無千分位的輸入框用字串（不使用 FLOAT）。
+ * 例如 123456 -> '1234.56'，500 -> '5.00'。
+ * 僅供表單 input value 回填，確保使用者可將預填值原樣提交，
+ * 且被 parseAmountCents()/toCents() 接受；顯示用請仍用 formatCents()。
+ */
+function formatCentsPlain(int $cents): string
+{
+    $negative = $cents < 0;
+    $abs      = abs($cents);
+    $dollars  = intdiv($abs, 100);
+    $centsPart = $abs % 100;
+    return ($negative ? '-' : '') . (string) $dollars . '.' . str_pad((string) $centsPart, 2, '0', STR_PAD_LEFT);
 }
 
 /**
@@ -273,6 +295,17 @@ function formatForeignAmount(int $foreignCents, string $currency): string
 }
 
 /**
+ * 台幣列舊資料把 original_amount_cents 存成 0。顯示與匯出時改用台幣金額，避免畫面上出現 0.00。
+ */
+function displayOriginalCents(int $originalCents, int $amountCents, string $currency): int
+{
+    if (strtoupper($currency) === 'TWD' && $originalCents === 0) {
+        return $amountCents;
+    }
+    return $originalCents;
+}
+
+/**
  * 將 basis points 匯率格式化顯示（如 325000 → "32.5000"）
  * @param int $rateBasisPoints
  * @return string **輸出時必須經 h() 轉義**
@@ -316,6 +349,27 @@ function validatePasswordStrength(string $password): array
         return ['ok' => false, 'reason' => '新密碼需同時包含大寫、小寫、數字、符號中的至少三種類別。'];
     }
     return ['ok' => true, 'reason' => ''];
+}
+
+/**
+ * 判斷密碼是否為不得使用的預設佔位符值。
+ *
+ * 複製 .env.example 未替換 ADMIN_PASSWORD 時，不得允許以該佔位符登入，
+ * 也不可將其種子寫入 users 表。此函數為單一來源，由 login.php 與
+ * seedAdmin() 共同呼叫，避免名單重複定義。
+ *
+ * @param string $password 欲檢查的明文密碼
+ * @return bool 是否為禁止的佔位符密碼
+ */
+function isPlaceholderPassword(string $password): bool
+{
+    $placeholders = [
+        'YOUR_STRONG_PASSWORD_HERE',
+        'admin',
+        'password',
+        '',
+    ];
+    return in_array($password, $placeholders, true);
 }
 
 /**
@@ -521,34 +575,32 @@ function getLedgerWithAccess(PDO $pdo, int $ledgerId, int $userId): array|false
 }
 
 /**
- * 解析並驗證日期參數，回傳 [$startDate, $endDate, $error]。
- *
- * @param string $startDateRaw
- * @param string $endDateRaw
+ * 解析月結查詢期間；自訂日期優先，空值以台北當月邊界補齊。
  * @return array [startDate, endDate, errorMessage]
  */
-function parseDateRange(string $startDateRaw, string $endDateRaw): array
+function parseDateRange(mixed $startDateRaw, mixed $endDateRaw, mixed $ymRaw = ''): array
 {
+    if ($startDateRaw === '' && $endDateRaw === '' && $ymRaw !== '') {
+        return is_string($ymRaw) ? parseYm($ymRaw) : ['', '', '年月格式錯誤，應為 YYYY-MM'];
+    }
+    if (!is_string($startDateRaw) || ($startDateRaw !== '' && (!preg_match('/^\d{4}-\d{2}-\d{2}$/D', $startDateRaw) || !isValidDate($startDateRaw)))) {
+        return ['', '', '開始日期格式不正確，應為 YYYY-MM-DD。'];
+    }
+    if (!is_string($endDateRaw) || ($endDateRaw !== '' && (!preg_match('/^\d{4}-\d{2}-\d{2}$/D', $endDateRaw) || !isValidDate($endDateRaw)))) {
+        return ['', '', '結束日期格式不正確，應為 YYYY-MM-DD。'];
+    }
+
     $today = new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei'));
-    $error = '';
+    $startDate = $startDateRaw === '' ? $today->format('Y-m-01') : $startDateRaw;
+    $endDate = $endDateRaw === '' ? $today->format('Y-m-t') : $endDateRaw;
+    return [$startDate, $endDate, $endDate < $startDate ? '結束日期不得早於開始日期。' : ''];
+}
 
-    if (!is_string($startDateRaw) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDateRaw) || !isValidDate($startDateRaw)) {
-        $startDate = $today->format('Y-m-01');
-    } else {
-        $startDate = $startDateRaw;
-    }
-
-    if (!is_string($endDateRaw) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDateRaw) || !isValidDate($endDateRaw)) {
-        $endDate = $today->format('Y-m-t');
-    } else {
-        $endDate = $endDateRaw;
-    }
-
-    if ($endDate < $startDate) {
-        $error = '結束日期不得早於開始日期。';
-    }
-
-    return [$startDate, $endDate, $error];
+/** 將舊月結路由統一交由現行入口驗證及處理。 */
+function redirectToStatementPreview(): void
+{
+    $query = array_intersect_key($_GET, array_flip(['ledger_id', 'ym', 'start_date', 'end_date']));
+    redirect('./export_pdf.php?' . http_build_query($query));
 }
 
 /**
@@ -719,7 +771,7 @@ function handleReceiptUpload(): string|false
 function renderPdfExportPage(array $user, string $pageTitle, string $ledgerName, string $subText, string $content, array $actions = []): void
 {
     $defaultActions = [
-        ['text' => '返回匯出頁面', 'href' => './export_pdf.php?ledger_id=' . h((string) ($_GET['ledger_id'] ?? '')), 'class' => 'btn primary'],
+        ['text' => '返回月結單', 'href' => './export_pdf.php?ledger_id=' . h((string) ($_GET['ledger_id'] ?? '')), 'class' => 'btn primary'],
         ['text' => '返回帳本詳情', 'href' => './ledger.php?ledger_id=' . h((string) ($_GET['ledger_id'] ?? '')), 'class' => 'btn secondary'],
     ];
     $actions = $actions ?: $defaultActions;
@@ -781,7 +833,7 @@ function renderPdfExportPage(array $user, string $pageTitle, string $ledgerName,
         </div>
     </div>
 
-    <script src="./assets/app.js"></script>
+    <script src="./assets/app.js?v=20261127-print"></script>
 </body>
 </html>
     <?php

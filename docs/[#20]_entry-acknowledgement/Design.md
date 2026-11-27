@@ -5,11 +5,11 @@
 | 項目 | 內容 |
 | --- | --- |
 | 名稱 | 記錄確認/認領機制設計與實作 |
-| 版本 | v1.0 |
+| 版本 | v1.1 |
 | 建立日期 | 2026-11-25 |
-| 更新日期 | 2026-11-25 |
+| 更新日期 | 2026-11-27 |
 | 任務編號 | [#20] |
-| 變更摘要 | v1.0 初版，依 planning.md 產出設計，含資料庫遷移、entry_ack.php 端點、ledger.php 狀態標籤與確認/爭議操作、審計日誌、權限控管、錯誤處理、驗證計畫。 |
+| 變更摘要 | v1.1 補記確認／爭議與稽核的隔離回歸；不變更實作契約。 |
 
 ## 來源規劃
 
@@ -271,17 +271,17 @@ IDOR 防護：entry_ack.php 所有查詢與寫入皆 `INNER JOIN ledger_access` 
 
 ## 12.2 實際驗證結果
 
-> 環境限制：本機未安裝 PHP / SQLite，無法執行端對端驗證。下列為靜態程式碼檢查與設計一致性確認。
+> 2026-11-27 已補上 PHP 8.4／PDO SQLite 的本機隔離 HTTP 驗證；下表未更新的項目仍僅有 2026-11-25 靜態證據。
 
 | 驗收情境 | 環境、日期與版本 | 實際檢查與結果 | 證據及限制 |
 |---|---|---|---|
 | 分錄列表顯示確認狀態 chip | 靜態檢查 2026-11-25 | ledger.php SELECT 包含 ack_status/ack_user_id/ack_at；表格渲染 chip，三狀態類別對應 Design §5.1 | 僅靜態確認，需部署環境實測 |
-| 記錄建立者可提交確認/爭議 | 靜態檢查 2026-11-25 | ledger.php `$isEntryCreator` 判斷正確；表單 POST 至 entry_ack.php；entry_ack.php 驗證建立者/owner | 僅靜態確認 |
+| 記錄建立者可提交確認/爭議 | 本機隔離 HTTP／SQLite，2026-11-27 | 已登入的建立者（同時為帳本 owner）分別提交確認、爭議，SQLite 儲存正確狀態、操作者與時間戳 | `tests/test_entry_ack.py` 驗狀態；獨立查詢另驗操作者與時間戳。未區隔純建立者與 owner 權限，也未實點瀏覽器按鈕。 |
 | 帳本 owner 可對他人記錄確認/爭議 | 靜態檢查 2026-11-25 | entry_ack.php `$isOwner = ($accessRole === 'owner')`；ledger.php `$isLedgerOwner = ($accessRole === 'owner')` | 僅靜態確認 |
 | 檢視者不顯示按鈕 | 靜態檢查 2026-11-25 | `$canAck` 條件控制按鈕顯示，viewer 為 false（非建立者、非 owner） | 僅靜態確認 |
 | CSRF 失敗導回列表頁 | 靜態檢查 2026-11-25 | entry_ack.php `checkCsrf()` 失敗 → 302 重導 ledger.php | 僅靜態確認 |
 | 軟刪除記錄不可確認/爭議 | 靜態檢查 2026-11-25 | 查詢與 UPDATE 皆含 `AND deleted = 0` | 僅靜態確認 |
-| audit_log 記錄 entry_confirm/entry_dispute | 靜態檢查 2026-11-25 | entry_ack.php `logAudit()` 正確呼叫，action 對應 | 僅靜態確認 |
+| audit_log 記錄 entry_confirm/entry_dispute | 本機隔離 HTTP／SQLite，2026-11-27 | 兩個 action 各寫入一筆對應分錄的紀錄；獨立查詢核對操作者及完整 detail | `tests/test_entry_ack.py` 通過，新增測試的 Codex Spec／Code／Security 唯讀審查均通過。 |
 | 資料庫遷移冪等 | 靜態檢查 2026-11-25 | db.php 三欄各自獨立檢查後 ALTER，重複執行不報錯 | 僅靜態確認 |
 | 所有輸出經 h() 轉義 | 靜態檢查 2026-11-25 | ledger.php 表格輸出皆用 h()；entry_ack.php 重導參數用 urlencode | 僅靜態確認 |
 

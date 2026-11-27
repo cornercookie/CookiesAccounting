@@ -68,9 +68,28 @@
         document.getElementById('amount').value = d.amount;
         filled.push('金額 ' + d.amount);
       }
-      if (d.category !== null) {
-        document.getElementById('category').value = d.category;
-        filled.push('分類 ' + d.category);
+      if (d.category !== null && typeof d.category === "string") {
+        var cat = d.category.trim();
+        if (cat !== '') {
+          var presetSelect = document.getElementById('category_preset');
+          if (presetSelect) {
+            var matched = false;
+            for (var i = 0; i < presetSelect.options.length; i++) {
+              var opt = presetSelect.options[i];
+              if (opt.value !== '' && opt.value !== '__custom__' && opt.value === cat) {
+                presetSelect.selectedIndex = i;
+                matched = true;
+                break;
+              }
+            }
+            if (!matched) {
+              presetSelect.value = "__custom__";
+            }
+            presetSelect.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          document.getElementById('category').value = cat;
+          filled.push('分類 ' + cat);
+        }
       }
       if (d.date !== null) {
         document.getElementById('entry_date').value = d.date;

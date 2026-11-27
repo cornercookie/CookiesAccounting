@@ -290,7 +290,7 @@ $users = $pdo->query('SELECT id, username, role, created_at FROM users ORDER BY 
                                             <input type="hidden" name="action" value="reset_password">
                                             <input type="hidden" name="target_user_id" value="<?php echo h((string) $u['id']); ?>">
                                             <input type="password" name="password" required placeholder="新密碼" class="input">
-                                            <button type="submit" class="btn sm secondary" onclick="return confirm('確定要重設此使用者的密碼嗎？');">重設密碼</button>
+                                            <button type="submit" class="btn sm secondary" data-confirm="確定要重設此使用者的密碼嗎？">重設密碼</button>
                                         </form>
                                         <!-- 變更角色 -->
                                         <form method="POST" action="./users.php" style="margin: 0 0 var(--space-2) 0;">
@@ -308,7 +308,7 @@ $users = $pdo->query('SELECT id, username, role, created_at FROM users ORDER BY 
                                             <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
                                             <input type="hidden" name="action" value="delete_user">
                                             <input type="hidden" name="target_user_id" value="<?php echo h((string) $u['id']); ?>">
-                                            <button type="submit" class="btn btn-block sm danger"<?php if ($isSelf): ?> disabled<?php endif; ?> onclick="return confirm('確定要刪除此使用者嗎？其帳本存取權與記帳記錄將一併移除，且無法復原。');">刪除</button>
+                                            <button type="submit" class="btn btn-block sm danger"<?php if ($isSelf): ?> disabled<?php endif; ?> data-confirm="確定要刪除此使用者嗎？其帳本存取權與記帳記錄將一併移除，且無法復原。">刪除</button>
                                         </form>
                                     </td>
                                 </tr>
@@ -326,5 +326,6 @@ $users = $pdo->query('SELECT id, username, role, created_at FROM users ORDER BY 
             </main>
         </div>
     </div>
+    <script src="../assets/app.js?v=30"></script>
 </body>
 </html>

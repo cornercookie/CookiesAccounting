@@ -205,6 +205,13 @@ flowchart TD
 
 ## 實作與設計變更
 
+**[#19] 編輯金額回歸修正（2026-11-27）：** OpenCode 將 `category_budget.php` 的編輯欄位改用 `functions.php` 的 `formatCentsPlain()`。表單回填 `1234.56`，列表仍顯示 `1,234.56`。不改整數分儲存、權限、CSRF 或資料表。
+
+- 實機驗證：以同一個 `tests/apache_smoke.py` 新案例測 Docker Apache 與隔離 SQLite。修前收到 `1,234.56` 而失敗；修後收到 `1234.56`，原值重送成功，SQLite 仍為 `123456` 分。整合後回歸重新通過，41 個應用程式 PHP 檔通過語法檢查。
+- 本次實作經 Codex 獨立唯讀審查：Spec、Code、Security 均通過，結論僅涵蓋此修正。未部署，亦未宣告本頁下列全部驗收條件已重新驗證。
+
+以下保留原始版本記錄；後續檢視權限以 [#27] 為準，member 與 viewer 可檢視，僅 owner 可寫入。
+
 本任務無新增程式變更：類別預算設定頁面 `category_budget.php`（268 行）已存在並完整實作新增（`create`）／編輯（`update`）／停用（`disable`）、CSRF 防護、owner 權限授權、audit_log 記錄、PDO 預備陳述式、`h()` 輸出。設計契約（Design §4.4 與 §4.6）已以既有程式為事實基準對齊（v1.1、v1.2）。
 
 實際變更僅為文件層面：`docs/[#19]_category-budget/Design.md` v1.0 → v1.2，將設計契約與既有 `category_budget.php` 記錄對齊，消除四項設計審查阻塞（頁面現況、category/categories FK 關係、HTTP 契約與 audit 動作、僅 owner 存取政策、§4.6 與程式 rowCount 行為一致）。

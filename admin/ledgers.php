@@ -296,7 +296,7 @@ foreach ($ledgers as $ledger) {
                         </h3>
                         <p class="meta" style="display: flex; gap: var(--space-4); align-items: center; flex-wrap: wrap;">
                             <a href="../ledger.php?ledger_id=<?php echo h((string) $ledger['id']); ?>">進入帳本詳情</a>
-                            <form method="POST" action="./ledgers.php" style="margin: 0;" onsubmit="return confirm('封存此帳本？封存後移至「已封存的帳本」頁面，記錄完整保留。');">
+                            <form method="POST" action="./ledgers.php" style="margin: 0;" data-confirm="封存此帳本？封存後移至「已封存的帳本」頁面，記錄完整保留。">
                                 <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
                                 <input type="hidden" name="action" value="archive_ledger">
                                 <input type="hidden" name="ledger_id" value="<?php echo h((string) $ledger['id']); ?>">
@@ -330,7 +330,7 @@ foreach ($ledgers as $ledger) {
                                                 <td><?php echo $isOwner ? '帳本擁有者（固定）' : '—'; ?></td>
                                                 <td class="ctr">
                                                     <?php if (!$isOwner): ?>
-                                                        <form method="POST" action="./ledgers.php" style="margin: 0;" onsubmit="return confirm('確定要移除此使用者對此帳本的存取權限嗎？');">
+                                                        <form method="POST" action="./ledgers.php" style="margin: 0;" data-confirm="確定要移除此使用者對此帳本的存取權限嗎？">
                                                             <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
                                                             <input type="hidden" name="action" value="remove_access">
                                                             <input type="hidden" name="ledger_id" value="<?php echo h((string) $ledger['id']); ?>">
@@ -394,5 +394,6 @@ foreach ($ledgers as $ledger) {
             </main>
         </div>
     </div>
+    <script src="../assets/app.js?v=30"></script>
 </body>
 </html>

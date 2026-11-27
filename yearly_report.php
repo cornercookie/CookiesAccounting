@@ -77,6 +77,7 @@ $yearOptions = range($currentYear - 2, $currentYear + 2);
 [$entries, $monthlyStatsRaw, $queryError] = fetchEntriesWithStats($pdo, $userId, $ledgerId, $startDate, $endDate);
 
 $monthlyStats = [];
+$categoryStats = [];
 $totalIncomeCents  = 0;
 $totalExpenseCents = 0;
 $totalTransferCents = 0;
@@ -102,6 +103,35 @@ if ($queryError !== '') {
         $totalTransferCents += $transfer;
     }
     $totalBalanceCents = $totalIncomeCents - $totalExpenseCents;
+
+    // 支出類別佔比（[#10]）：同區間非刪除支出，依類別群組，佔比採整數除法
+    $categoryStmt = $pdo->prepare('
+        SELECT e.category, SUM(e.amount_cents) AS expense_cents
+        FROM entries e
+        INNER JOIN ledger_access la ON la.ledger_id = e.ledger_id AND la.user_id = :user_id
+        WHERE e.ledger_id = :ledger_id
+          AND e.deleted = 0
+          AND e.type = :type
+          AND e.entry_date BETWEEN :startDate AND :endDate
+        GROUP BY e.category
+        ORDER BY expense_cents DESC, e.category ASC
+    ');
+    $categoryStmt->execute([
+        ':user_id'   => $userId,
+        ':ledger_id' => $ledgerId,
+        ':type'      => 'expense',
+        ':startDate' => $startDate,
+        ':endDate'   => $endDate,
+    ]);
+    $categoryStats = [];
+    foreach ($categoryStmt->fetchAll() as $row) {
+        $cents = (int) $row['expense_cents'];
+        $categoryStats[] = [
+            'category' => $row['category'],
+            'expense'  => $cents,
+            'percent'  => $totalExpenseCents > 0 ? intdiv($cents * 100, $totalExpenseCents) : 0,
+        ];
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -236,6 +266,34 @@ if ($queryError !== '') {
                                     <td class="num"><?php echo h($totalBalanceCents >= 0 ? '+' : '') . h(formatCents($totalBalanceCents)); ?></td>
                                 </tr>
                             </tfoot>
+                        </table>
+                    </div>
+
+                    <!-- 支出類別佔比（[#10]） -->
+                    <div class="report-table">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>類別</th>
+                                    <th class="num">支出</th>
+                                    <th class="num">佔比</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php if (empty($categoryStats)): ?>
+                                    <tr>
+                                        <td colspan="3">尚無支出紀錄。</td>
+                                    </tr>
+                                <?php else: ?>
+                                    <?php foreach ($categoryStats as $cat): ?>
+                                    <tr>
+                                        <td><?php echo h($cat['category']); ?></td>
+                                        <td class="num amt-out"><?php echo h(formatCents($cat['expense'])); ?></td>
+                                        <td class="num"><?php echo h((string) $cat['percent']); ?>%</td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </tbody>
                         </table>
                     </div>
                 <?php endif; ?>

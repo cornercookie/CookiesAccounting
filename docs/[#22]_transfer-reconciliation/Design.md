@@ -474,6 +474,10 @@ $unpairedCount = (int) $stmt->fetchColumn();
 
 ---
 
+### 本機回歸結果
+
+`tests/test_transfer_pair.py` 以同一位合成 owner 在兩本帳簿分別新增 `10.25`、`9.00` 的轉帳後配對；SQLite 確認兩筆 ID 互指，稽核詳情精確記錄兩個 ID 與差額 `125` 分，各帳簿顯示本筆「已配對」。獨立靜態審查與本機整合回歸通過；不涵蓋其他角色或跨使用者權限。
+
 ## 13. 實作清單
 
 - [ ] **資料庫**：db.php `ensureSchema()` 新增 `transfer_pair_id` 欄位與索引

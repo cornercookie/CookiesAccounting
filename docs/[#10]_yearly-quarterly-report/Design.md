@@ -277,3 +277,7 @@ $transferCents = (int) $row['transfer_cents'];
 - [x] 列印樣式：隱藏側欄、導覽、篩選表單，總計列保持樣式
 - [x] 導覽連結：ledgers.php、ledger.php、dashboard.php 皆可進入報表
 - [x] 既有功能不受影響：ledger.php 月度報表正常運作
+
+#### 本機日期邊界回歸
+
+`tests/test_report_periods.py` 以隔離 PHP／SQLite 實測：Q4 的首日與末日均計入，`Q4` 和 `4` 得到相同精確總額；年度不計入次年元旦，年報與季報都排除作廢分錄，轉帳單獨列出而不計入結餘。無記錄的年報與季報均顯示提示。該回歸通過 Spec／Code／Security 靜態審查、獨立執行及整合測試（共 15 項 HTTP 測試）。此測試不驗查詢故障、列印版面或所有帳本角色。

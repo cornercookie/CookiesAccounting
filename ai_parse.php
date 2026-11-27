@@ -99,16 +99,41 @@ $prompt = <<<'PROMPT'
 
 PROMPT;
 $prompt = str_replace('__TEXT__', $text, $prompt);
+$today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei')))->format('Y-m-d');
+$prompt .= "\n今天日期（Asia/Taipei）：" . $today . "。未提及日期時必須使用這個日期。\n";
+
+// cURL 擴展缺失時回傳 502，不拋出錯誤
+if (!function_exists('curl_init')) {
+    http_response_code(502);
+    echo json_encode(['ok' => false, 'error' => 'AI 解析服務暫時無法使用，請稍後再試或手動填寫。'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 // 呼叫 Gemini API（後端代理，前端不直接連 Google 端點）
-$geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' . $apiKey;
+$geminiModel = env('GEMINI_MODEL', 'gemini-3.5-flash-lite');
+if (!preg_match('/^[A-Za-z0-9._-]{1,80}$/', $geminiModel)) {
+    $geminiModel = 'gemini-3.5-flash-lite';
+}
+$geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/' . $geminiModel . ':generateContent?key=' . $apiKey;
 $payload = [
     'contents' => [
         ['parts' => [['text' => $prompt]]]
     ],
     'generationConfig' => [
         'temperature' => 0.1,
-        'maxOutputTokens' => 256,
+        'responseMimeType' => 'application/json',
+        'responseSchema' => [
+            'type' => 'OBJECT',
+            'properties' => [
+                'type' => ['type' => 'STRING', 'enum' => ['income', 'expense']],
+                'amount' => ['type' => 'NUMBER'],
+                'category' => ['type' => 'STRING'],
+                'date' => ['type' => 'STRING'],
+                'description' => ['type' => 'STRING'],
+            ],
+            'required' => ['type', 'amount', 'category', 'date', 'description'],
+        ],
+        'thinkingConfig' => ['thinkingLevel' => 'MEDIUM'],
     ],
 ];
 
@@ -155,6 +180,9 @@ $cleaned = trim($cleaned);
 $cleaned = preg_replace('/\s*```\s*$/', '', $cleaned);
 
 $parsed = json_decode($cleaned, true);
+if (is_array($parsed) && array_is_list($parsed) && count($parsed) === 1 && is_array($parsed[0])) {
+    $parsed = $parsed[0];
+}
 if (!is_array($parsed)) {
     error_log('Gemini JSON decode failed: ' . $cleaned);
     http_response_code(502);
@@ -167,8 +195,10 @@ $result = [];
 $result['type'] = isset($parsed['type']) && in_array($parsed['type'], ['income', 'expense'], true)
     ? $parsed['type'] : null;
 $amountCents = isset($parsed['amount']) ? toCents((string) $parsed['amount']) : null;
-// 前端表單預期「元」字串格式（如 "120.00"），直接回傳 amount 供前端使用
-$result['amount'] = ($amountCents !== false && $amountCents > 0) ? formatCents($amountCents) : null;
+// 表單金額欄不接受千分位，必須是 120.00 這種可再解析的字串。
+$result['amount'] = ($amountCents !== false && $amountCents > 0)
+    ? intdiv($amountCents, 100) . '.' . str_pad((string) ($amountCents % 100), 2, '0', STR_PAD_LEFT)
+    : null;
 // 保留 amount_cents 供參考/除錯
 $result['amount_cents'] = ($amountCents !== false && $amountCents > 0) ? $amountCents : null;
 $result['category'] = isset($parsed['category']) && is_string($parsed['category']) && $parsed['category'] !== ''

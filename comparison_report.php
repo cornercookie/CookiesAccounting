@@ -237,7 +237,7 @@ $hasData = count($comparison) > 0;
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>收支比較報表 - 全家人記帳系統</title>
-    <link rel="stylesheet" href="./assets/style.css?v=20261115-8">
+    <link rel="stylesheet" href="./assets/style.css?v=20261127-1">
     <style>
         /* 收支比較報表列印樣式 */
         @media print {
@@ -350,7 +350,15 @@ $hasData = count($comparison) > 0;
                 <?php else: ?>
                     <div class="comparison-chart" aria-label="類別支出比較圖表">
                         <h3><?php echo h($periodALabel . ' vs ' . $periodBLabel . ' 各類別支出比較'); ?></h3>
-                        <svg class="category-chart" viewBox="0 0 700 420" role="img" aria-labelledby="comparison-chart-title">
+                        <?php
+                        // 共用版面數值（於開啟 SVG 前定義，供迴圈與 SVG 高度共用）
+                        $barHeight = 22;
+                        $gap       = 14;
+                        $y         = 60;
+                        $stride    = $barHeight * 2 + $gap; // 每組（藍+紅兩條）間距
+                        $svgHeight = max(420, $y + count($comparison) * $stride);
+                        ?>
+                        <svg class="category-chart" viewBox="0 0 700 <?php echo h((string) $svgHeight); ?>" role="img" aria-labelledby="comparison-chart-title">
                             <title id="comparison-chart-title"><?php echo h($periodALabel . ' vs ' . $periodBLabel . ' 各類別支出比較'); ?></title>
                             <!-- 圖例 -->
                             <rect x="80" y="20" width="18" height="18" fill="var(--blue)" rx="2" />
@@ -358,10 +366,7 @@ $hasData = count($comparison) > 0;
                             <rect x="260" y="20" width="18" height="18" fill="var(--red)" rx="2" />
                             <text x="285" y="34" font-size="12" fill="#23272b"><?php echo h($periodBLabel); ?></text>
                             <?php
-                            $barHeight = 22;
-                            $gap = 14;
                             $maxWidth = 360;
-                            $y = 60;
                             $maxCents = 0;
                             foreach ($comparison as $c) {
                                 $maxCents = max($maxCents, $c['periodA'], $c['periodB']);
@@ -377,7 +382,7 @@ $hasData = count($comparison) > 0;
                                 echo '<text x="' . (int) (80 + $aWidth + 5) . '" y="' . (int) ($y + $barHeight / 2 + 5) . '" font-size="11" fill="#23272b">' . $aAmount . '</text>';
                                 echo '<rect x="80" y="' . (int) ($y + $barHeight + 4) . '" width="' . $bWidth . '" height="' . (int) $barHeight . '" fill="var(--red)" rx="2" />';
                                 echo '<text x="' . (int) (80 + $bWidth + 5) . '" y="' . (int) ($y + $barHeight + 4 + $barHeight / 2 + 5) . '" font-size="11" fill="#23272b">' . $bAmount . '</text>';
-                                $y += $barHeight * 2 + $gap;
+                                $y += $stride;
                             endforeach;
                             ?>
                         </svg>

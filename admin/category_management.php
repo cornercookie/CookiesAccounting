@@ -299,7 +299,7 @@ $categories = $stmt->fetchAll();
                                                 <input type="hidden" name="action" value="edit_category">
                                                 <input type="hidden" name="category_id" value="<?php echo h((string) $c['id']); ?>">
                                                 <input type="text" name="name" required maxlength="50" value="<?php echo h($c['name']); ?>" class="input" style="width: 120px; margin-right: var(--space-2);">
-                                                <button type="submit" class="btn sm secondary" onclick="return confirm('確定要將分類名稱改為「<?php echo h($c['name']); ?>」嗎？');">編輯</button>
+                                                <button type="submit" class="btn sm secondary" data-confirm="確定要將分類名稱改為「<?php echo h($c['name']); ?>」嗎？">編輯</button>
                                             </form>
                                             <!-- 停用分類 -->
                                             <?php if ($isActive): ?>
@@ -307,7 +307,7 @@ $categories = $stmt->fetchAll();
                                                 <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
                                                 <input type="hidden" name="action" value="toggle_category">
                                                 <input type="hidden" name="category_id" value="<?php echo h((string) $c['id']); ?>">
-                                                <button type="submit" class="btn sm danger" onclick="return confirm('確定要停用分類「<?php echo h($c['name']); ?>」嗎？停用後不會刪除既有記帳記錄。');">停用</button>
+                                                <button type="submit" class="btn sm danger" data-confirm="確定要停用分類「<?php echo h($c['name']); ?>」嗎？停用後不會刪除既有記帳記錄。">停用</button>
                                             </form>
                                             <?php endif; ?>
                                         </td>
@@ -348,7 +348,7 @@ $categories = $stmt->fetchAll();
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <button type="submit" class="btn primary btn-block" onclick="return confirm('確定要合併分類嗎？合併後來源分類將被停用，所有相關記帳記錄將更新為目標分類名稱。');">合併分類</button>
+                    <button type="submit" class="btn primary btn-block" data-confirm="確定要合併分類嗎？合併後來源分類將被停用，所有相關記帳記錄將更新為目標分類名稱。">合併分類</button>
                 </form>
 
                 <p class="meta" style="border-top: 1px solid var(--line); padding-top: var(--space-4); margin-top: var(--space-5);">
@@ -357,5 +357,6 @@ $categories = $stmt->fetchAll();
             </main>
         </div>
     </div>
+    <script src="../assets/app.js?v=30"></script>
 </body>
 </html>

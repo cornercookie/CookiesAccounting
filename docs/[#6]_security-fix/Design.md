@@ -234,6 +234,16 @@ Set-Cookie: PHPSESSID=...; Secure; HttpOnly; SameSite=Lax
 | FIND-018 | 變更密碼輸入 9 字元 / 純小寫 / 無符號 | 拒絕並顯示具體錯誤訊息 |
 | FIND-019 | 匯出 CSV 開啟 Excel 對照前端金額 | 完全一致，無浮點誤差 |
 
+### 本機相容性驗證（2026-11-27）
+
+以 `PHP_APACHE_IMAGE=php:8.1-apache python3 tests/apache_smoke.py` 在隔離的 Docker Apache／SQLite 上驗證 PHP 8.1.34，另以 PHP 8.4 重跑相同套件。兩版均通過 Apache 子目錄、Secure Cookie 標頭、匿名登入限制、私密檔案封鎖及主要帳務流程。測試使用本機 HTTP 與可拋棄帳號；不代表正式 cPanel HTTPS、瀏覽器的 Secure Cookie 傳送或全部 Session 邊界已驗收。
+
+FIND-013 的密碼重設流程已加入 `tests/test_session_reset.py`：合成成員先登入並成功開啟儀表板；管理員以正常後台表單重設密碼後，該成員的原 Session 收到導回登入頁的 302；使用獨立 Cookie 容器以新密碼登入可再次開啟儀表板。此案例通過 Codex 的 Spec／Code／Security 靜態審查及獨立 PHP 8.4 本機 HTTP 實測；納入後 HTTP 套件共 13 案通過。這項測試不涵蓋變更角色、閒置逾時或正式 HTTPS。
+
+FIND-013 的角色變更流程另由 `tests/test_session_role_change.py` 驗證：合成管理員先確認可開啟後台，另一位管理員透過正常表單將其降為 `member`，SQLite 確認角色已更新；原 Session 再開儀表板會導回登入頁；獨立 Cookie 容器以原密碼登入可看儀表板，但不能再開管理頁。獨立審查、PHP 8.4 本機實測及整合 HTTP 27 案通過；變更操作與舊登入分處不同秒，未驗證同秒邊界或正式 HTTPS。
+
+FIND-016 的逾時分支加入 `tests/test_session_idle_timeout.py`：只在測試暫存副本將門檻縮至 3 秒，確認同一已登入用戶能開啟儀表板，閒置後收到 `302` 與 `Location: ./login.php`。通過獨立 Spec／Code／Security 複審、隔離 HTTP 與整合 28 案。專案門檻仍為 1800 秒，本次未以真實 30 分鐘或正式 cPanel HTTPS 驗證。
+
 ---
 
 ## 7. 部署檢查清單
@@ -257,4 +267,4 @@ Set-Cookie: PHPSESSID=...; Secure; HttpOnly; SameSite=Lax
 - **API 防護**：速率限制（FIND-014）
 - **程式細節**：整數運算、弱密碼佔位符（FIND-019/017）
 
-所有修復均已實作並驗收通過，**風險等級已從 Medium 降低**，系統具備生產環境部署的安全基準。
+部署驗收須以 §6 的實測範圍及 §7 的現場檢查為準；本機煙霧測試通過不等同正式環境安全驗收。

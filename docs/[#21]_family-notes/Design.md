@@ -355,6 +355,7 @@ LIMIT 1
 | 審計格式正確 | 本機、2026-11-25、v0.3 | 新增留言後查 audit_log → `action='entry_comment'`、`detail='{"entry_id":123}'`（JSON）、不含留言文字、長度 ≤255 | 檢查 audit_log 表確認 |
 | 審計不含內容 | 本機、2026-11-25、v0.3 | 新增留言後查 audit_log → `detail` 欄位不包含留言內容文字 | 檢查 audit_log 表確認 |
 | 留言排序 | 本機、2026-11-25、v0.3 | 同一 entry 多則留言 → 依 `created_at` 降冪顯示（最新在上） | 手動測試通過 |
+| 留言不擠掉分錄分頁 | 本機 PHP／隔離 SQLite | `tests/test_comment_pagination.py` 建立 55 筆分錄，第一頁最新一筆附 51 則留言；第一頁仍有指定 50 筆、第二頁恰為剩餘 5 筆，51 則按順序全部留在第一頁 | 獨立靜態審查及整合回歸通過；限合成 owner 情境 |
 | 展開/收合 | 本機、2026-11-25、v0.3 | ledger.php 分錄列表點擊「留言」按鈕 → 切換展開區塊顯示/隱藏、按鈕 `aria-expanded` 正確切換 | 手動測試通過、行動裝置確認 |
 | 響應式 ≤720px | 本機、2026-11-25、v0.3 | 手機瀏覽器/DevTools 模擬 → 展開區塊全寬、表單單欄、觸控目標 ≥44px、字元計數可見 | 手機實測/DevTools 通過 |
 | SQL Injection 防護 | 本機、2026-11-25、v0.3 | 所有查詢路徑 → 程式碼審查確認所有 SQL 使用 PDO 預備陳述式、具名佔位符、`ATTR_EMULATE_PREPARES=false` | 程式碼審查通過 |

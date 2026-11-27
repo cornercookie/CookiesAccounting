@@ -55,7 +55,7 @@ graph TD
 | **作廢記錄** | ✅ | ✅ | ❌ | ❌ | `delete_entry.php`，僅限自己建立的記錄 |
 | **匯入 CSV** | ✅ | ✅ | ❌ | ❌ | `import_csv.php` |
 | **匯出 CSV** | ✅ | ✅ | ✅ | ❌ | `export_csv.php` |
-| **匯出 PDF** | ✅ | ✅ | ✅ | ❌ | `export_pdf.php` |
+| **列印月結單／傳票** | ✅ | ✅ | ✅ | ❌ | `export_pdf.php`（僅可存取的未封存帳本） |
 | **設定每月預算** | ✅ | ❌ | ❌ | ❌ | `ledger.php` POST `set_budget` |
 | **設定類別預算** | ✅ | ❌ | ❌ | ❌ | `category_budget.php` POST create/update/disable，僅 owner 可存取頁面（member／viewer 與非成員無法檢視） |
 | **建立重複記錄** | ✅ | ❌ | ❌ | ❌ | `ledger.php` POST `create_recurring` |

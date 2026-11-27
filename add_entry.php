@@ -154,8 +154,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 if (!$receiptUploadFailed) {
-                    // 審計日誌與 DB 寫入須使用同一個 original_amount_cents 值（TWD 模式為 0）
-                    $dbOriginalAmountCents = ($currency === 'TWD') ? 0 : $foreignCents;
+                    // 審計日誌與 DB 寫入須使用同一個 original_amount_cents。
+                    // TWD 也寫入原幣分，與編輯頁、重複記錄產生的分錄一致。
+                    $dbOriginalAmountCents = $foreignCents;
                     $stmt = $pdo->prepare('
                     INSERT INTO entries
                         (ledger_id, user_id, amount_cents, type, category, entry_date, note, receipt_path, deleted,
@@ -390,34 +391,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
     </div>
 
-        <script src="./assets/app.js"></script>
-    <script src="./assets/ai-parse.js"></script>
-    <script>
-    // 幣別切換時顯示/隱藏匯率欄位，TWD 固定 1.0000
-    // PHP 決定初始幣別 → select.value 已正確 → JS 讀取並套用（S-05 契約）
-    document.addEventListener('DOMContentLoaded', function () {
-        const currencySelect = document.getElementById('currency');
-        const exchangeRateField = document.getElementById('exchangeRateField');
-        const exchangeRateInput = document.getElementById('exchange_rate');
-
-        function toggleExchangeRate(currency) {
-            if (currency === 'TWD') {
-                exchangeRateField.style.display = 'none';
-                exchangeRateInput.value = '1.0000';
-                exchangeRateInput.removeAttribute('required');
-            } else {
-                exchangeRateField.style.display = '';
-                exchangeRateInput.setAttribute('required', '');
-            }
-        }
-
-        // 初始化：讀取 PHP 渲染的 select.value（已由 $initialCurrency 決定）
-        toggleExchangeRate(currencySelect.value);
-
-        currencySelect.addEventListener('change', function (e) {
-            toggleExchangeRate(e.target.value);
-        });
-    });
-    </script>
+        <script src="./assets/app.js?v=30"></script>
+    <script src="./assets/ai-parse.js?v=31"></script>
 </body>
 </html>

@@ -4,15 +4,21 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/functions.php';
 
+$databaseAvailable = extension_loaded('pdo_sqlite');
+if (!$databaseAvailable) {
+    http_response_code(503);
+    header('Cache-Control: no-store');
+}
+
 // 已登入則直接進入儀表板
-if (!empty($_SESSION['user_id'])) {
+if ($databaseAvailable && !empty($_SESSION['user_id'])) {
     redirect('./dashboard.php');
 }
 
 $username = '';
-$error    = '';
+$error    = $databaseAvailable ? '' : '資料庫功能無法使用。請在 cPanel 啟用 PHP 的 pdo_sqlite 擴充後重試。';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($databaseAvailable && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!checkCsrf($_POST['csrf_token'] ?? '')) {
         $error = '請求驗證失敗，請重新提交表單。';
     } else {
@@ -44,8 +50,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $user = $stmt->fetch();
 
             if ($user !== false && password_verify($password, $user['password_hash'])) {
-                clearLoginAttempts($identifier);
-                // 重新產生 session id，防止 session fixation
+                if (isPlaceholderPassword($password)) {
+                    // 預設佔位符密碼不得登入：與一般失敗相同訊息，不洩漏原因
+                    recordLoginFailure($identifier);
+                    logAudit('login_failed_placeholder', 'identifier: ' . $identifier, null, $username);
+                    $error = '帳號或密碼錯誤';
+                } else {
+                    clearLoginAttempts($identifier);
+                    // 重新產生 session id，防止 session fixation
                 session_regenerate_id(true);
                 $_SESSION['user_id']   = (int) $user['id'];
                 $_SESSION['username']  = $user['username'];
@@ -106,13 +118,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 redirect('./dashboard.php');
+                }
+            } else {
+                recordLoginFailure($identifier);
+                logAudit('login_failed', 'identifier: ' . $identifier, null, $username);
+                $error = '帳號或密碼錯誤';
             }
-
-            recordLoginFailure($identifier);
-            logAudit('login_failed', 'identifier: ' . $identifier, null, $username);
-            $error = '帳號或密碼錯誤';
         }
     }
+}
 }
 ?>
 <!DOCTYPE html>
@@ -140,6 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <p class="alert error" role="alert"><?php echo h($error); ?></p>
                 <?php endif; ?>
 
+                <?php if ($databaseAvailable): ?>
                 <form method="POST" action="./login.php" autocomplete="off" class="form">
     <input type="hidden" name="csrf_token" value="<?php echo h(csrfToken()); ?>">
                     <div class="field">
@@ -171,6 +186,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     <button type="submit" class="btn primary btn-block">登入</button>
                 </form>
+                <?php endif; ?>
 
                 <p class="meta" style="margin-top: var(--space-4); font-size: var(--text-xs);">初始帳號請參見專案根目錄 .env（部署後務必變更）。</p>
             </div>

@@ -63,8 +63,7 @@ if ($entry === false) {
 
 $currency = (string) ($entry['currency'] ?? 'TWD');
 $exchangeRate = $currency === 'TWD' ? '1.0000' : formatExchangeRate((int) ($entry['exchange_rate'] ?? 10000));
-$originalAmount = h(formatForeignAmount((int) ($entry['original_amount_cents'] ?? 0), $currency));
-$amount    = h(formatCents((int) $entry['amount_cents']));
+$amount = formatCentsPlain(displayOriginalCents((int) ($entry['original_amount_cents'] ?? 0), (int) $entry['amount_cents'], $currency));
 $entryDate = (string) $entry['entry_date'];
 $todayDate = (new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei')))->format('Y-m-d');
 $category  = (string) $entry['category'];
@@ -112,11 +111,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $rateBasisPoints = 10000; // 1.0000
                 $exchangeRate = '1.0000';
             } else {
-                $rateCents = parseAmountCents($exchangeRate, 8);
-                if ($rateCents === false || !isValidExchangeRateBasisPoints($rateCents)) {
+                $rateBasisPoints = parseExchangeRateBasisPoints($exchangeRate);
+                if ($rateBasisPoints === false || !isValidExchangeRateBasisPoints($rateBasisPoints)) {
                     $error = '匯率格式不正確或超出範圍（0.0001 ~ 10000）。';
-                } else {
-                    $rateBasisPoints = $rateCents;
                 }
             }
 
@@ -191,6 +188,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+}
 }
 ?>
 <!DOCTYPE html>
@@ -370,29 +368,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
     </div>
 
-        <script src="./assets/app.js"></script>
-    <script>
-    // 幣別切換時顯示/隱藏匯率欄位，TWD 固定 1.0000
-    document.addEventListener('DOMContentLoaded', function () {
-        const currencySelect = document.getElementById('currency');
-        const exchangeRateField = document.getElementById('exchangeRateField');
-        const exchangeRateInput = document.getElementById('exchange_rate');
-
-        function toggleExchangeRate() {
-            const currency = currencySelect.value;
-            if (currency === 'TWD') {
-                exchangeRateField.style.display = 'none';
-                exchangeRateInput.value = '1.0000';
-                exchangeRateInput.removeAttribute('required');
-            } else {
-                exchangeRateField.style.display = '';
-                exchangeRateInput.setAttribute('required', '');
-            }
-        }
-
-        currencySelect.addEventListener('change', toggleExchangeRate);
-        toggleExchangeRate(); // 初始化
-    });
-    </script>
+        <script src="./assets/app.js?v=30"></script>
 </body>
 </html>

@@ -42,8 +42,11 @@ if (!in_array($format, $validFormats, true)) {
     exit;
 }
 
-// 解析 ym 參數（YYYY-MM，預設本月）
+// 解析 ym 參數（YYYY-MM，未帶或空字串時預設本月）
 $ymRaw = $_GET['ym'] ?? '';
+if (!is_string($ymRaw) || $ymRaw === '') {
+    $ymRaw = (new DateTimeImmutable('now', new DateTimeZone('Asia/Taipei')))->format('Y-m');
+}
 [$startDate, $endDate, $ymError] = parseYm($ymRaw);
 if ($ymError !== '') {
     // 格式錯誤：HTTP 400，不輸出檔案
@@ -90,9 +93,9 @@ try {
             $category = $row['category'];
             $username = $row['username'];
             $note = (string) ($row['note'] ?? '');
-            $currency = $row['currency'] ?? 'TWD';
-            $exchangeRate = $row['exchange_rate'] ?? 10000;
-            $originalAmountCents = $row['original_amount_cents'] ?? 0;
+            $currency = (string) ($row['currency'] ?? 'TWD');
+            $exchangeRate = (int) ($row['exchange_rate'] ?? 10000);
+            $originalAmountCents = displayOriginalCents((int) ($row['original_amount_cents'] ?? 0), (int) $row['amount_cents'], $currency);
             $originalAmount = formatForeignAmount($originalAmountCents, $currency);
             $exchangeRateStr = formatExchangeRate($exchangeRate);
 
@@ -133,20 +136,20 @@ try {
         // 輸出 UTF-8 BOM 確保 Excel 讀取中文不亂碼
         fwrite($output, "\xEF\xBB\xBF");
 
-        // 輸出標題列
-        fputcsv($output, ['日期', '類型', '原幣別', '原幣金額', '匯率', '台幣金額 (元)', '分類', '記錄者', '備註']);
+        // 輸出標題列（CSV 序列化：fputcsv 以雙引號重複方式處理嵌入的引號、逗號與換行）
+        fputcsv($output, ['日期', '類型', '原幣別', '原幣金額', '匯率', '台幣金額 (元)', '分類', '記錄者', '備註'], ',', '"', '');
 
         // 輸出資料列（含 CSV 公式注入防護）
         while ($row = $stmt->fetch()) {
-            $date = h($row['entry_date']);
-            $type = h($row['type'] === 'income' ? '收入' : ($row['type'] === 'expense' ? '支出' : '轉帳'));
-            $amount = h(formatCents((int) $row['amount_cents']));
-            $category = h($row['category']);
-            $username = h($row['username']);
-            $description = h((string) ($row['note'] ?? ''));
-            $currency = h($row['currency'] ?? 'TWD');
-            $originalAmount = h(formatForeignAmount((int) ($row['original_amount_cents'] ?? 0), $row['currency'] ?? 'TWD'));
-            $exchangeRate = h(formatExchangeRate((int) ($row['exchange_rate'] ?? 10000)));
+            $date = (string) $row['entry_date'];
+            $type = $row['type'] === 'income' ? '收入' : ($row['type'] === 'expense' ? '支出' : '轉帳');
+            $amount = formatCents((int) $row['amount_cents']);
+            $category = (string) $row['category'];
+            $username = (string) $row['username'];
+            $description = (string) ($row['note'] ?? '');
+            $currency = (string) ($row['currency'] ?? 'TWD');
+            $originalAmount = formatForeignAmount(displayOriginalCents((int) ($row['original_amount_cents'] ?? 0), (int) $row['amount_cents'], (string) ($row['currency'] ?? 'TWD')), (string) ($row['currency'] ?? 'TWD'));
+            $exchangeRate = formatExchangeRate((int) ($row['exchange_rate'] ?? 10000));
 
             // 統計幣別分布（使用未轉義的幣別代碼）
             $rawCurrency = $row['currency'] ?? 'TWD';
@@ -154,7 +157,7 @@ try {
 
             // 依資安規範 SEC-03：CSV 公式注入防護 (Formula Injection)
             // 若欄位開頭為 =, +, -, @, \t, \r，強制在前方加上單引號，避免 Excel 等軟體將其解析為公式
-            // 注意：在 h() 轉義之後進行，確保 HTML 特殊字元已轉義
+            // 注意：此Prefix guard在序列化前進行，直接作用於原始文字欄位
             $formulaPrefixes = ['=', '+', '-', '@', "\t", "\r"];
             foreach ([&$date, &$type, &$currency, &$originalAmount, &$exchangeRate, &$amount, &$category, &$username, &$description] as &$field) {
                 if ($field !== '' && in_array($field[0], $formulaPrefixes, true)) {
@@ -163,7 +166,7 @@ try {
             }
             unset($field);
 
-            fputcsv($output, [$date, $type, $currency, $originalAmount, $exchangeRate, $amount, $category, $username, $description]);
+            fputcsv($output, [$date, $type, $currency, $originalAmount, $exchangeRate, $amount, $category, $username, $description], ',', '"', '');
             $rowCount++;
         }
 

@@ -5,10 +5,10 @@
 | 項目 | 內容 |
 | --- | --- |
 | 文件名稱 | Design: 查帳統計與提醒 |
-| 版本 | v1.0 |
+| 版本 | v1.2 |
 | 建立日期 | 2026-11-21 |
-| 更新日期 | 2026-11-21 |
-| 變更摘要 | 初始設計，依 Planning 四項功能拆解為程式修改路徑與前端變更 |
+| 更新日期 | 2026-11-27 |
+| 變更摘要 | [#13] 保留只含收入月份的空狀態修正；修正多類別長條超出 SVG 底端，補記實跑驗證 |
 
 ## 來源 Planning 與需求摘要
 
@@ -66,7 +66,8 @@ flowchart TD
 - PHP 端查詢：`SELECT e.category, SUM(e.amount_cents) FROM entries e INNER JOIN ledger_access la ON la.ledger_id = e.ledger_id AND la.user_id = :user_id WHERE e.ledger_id = :ledger_id AND e.deleted = 0 AND e.type = 'expense' AND e.entry_date BETWEEN 本月首日 AND 本月末日 GROUP BY e.category ORDER BY SUM(e.amount_cents) DESC`
 - 金額經 `formatCents()` 格式化；類別標籤與 `username` 所有輸出點（HTML 與 SVG `<text>`）皆經 `h()` 轉義；SVG `<rect>` 的 `x/y/width/height` 為 PHP 計算之數字，強制 cast 為數值。
 - **顏色變數**：`<rect>` 不指定內聯 `fill`，改由 CSS 變數 `--blue` 控制（`assets/style.css` 第 634 行 `.category-chart rect { fill: var(--blue); }`），避免硬編碼衝突。
-- 若無支出記錄，顯示文字「尚無支出紀錄」（ledger.php 第 820-821 行）。
+- 未套用篩選的月檢視若無可繪製的支出，顯示「尚無支出紀錄」（`ledger.php:985–987`）；不以分錄總筆數判定，因此只有收入或轉帳時也適用。正支出的 SVG 分支與篩選檢視不變。
+- `viewBox` 高度依類別數及繪圖步距計算，最低維持 300。8 類測例最後長條底端為 330：修復前超出高度 300，修復後包含於高度 340。回歸測試、獨立規格／程式／資安差異審查，以及 Chrome 1100／390px 視窗均已通過。
 - **回退機制**：SVG 產生區塊以 `try-catch` 包裹（ledger.php 第 766-782 行），失敗時輸出 HTML 表格（類別、金額、佔比），金額經 `formatCents()`、文字經 `h()` 轉義。
 
 ### 列印友善月結單
@@ -98,6 +99,16 @@ flowchart TD
 | Security（資安）審查 | 待審查 | — | 檢查 IDOR（ledger_access 權限）、XSS（`h()` 轉義）、SQL 注入（PDO 預備陳述式） |
 
 > 設計審查三階段皆通過後方可進入實作。實作階段完成後，需在同一份 Design.md 補上「實際變更」與「驗證證據」，並執行實作審查（Spec → Code → Security）。
+
+### [#13] 月圖表空狀態修正紀錄
+
+| 項目 | 結果 |
+| --- | --- |
+| 設計／實作差異審查 | Codex 分別對本次修正的 Spec、Code、Security 判定通過；不代表整份設計已驗收。 |
+| 實際變更 | OpenCode 移除空狀態分支對分錄總筆數的限制；不變更查詢、權限、CSP 或金額格式。 |
+| 驗證證據 | PHP 8.4 lint、獨立 HTTP／SQLite 與既有列印／留言回歸通過；只有收入的月份修前缺提示、修後顯示，單日篩選不顯示月提示，正支出仍顯示 SVG。另核對兩帳本的成員計數 1／0／2，已作廢與上月分錄未計入。 |
+
+成員進度的可重跑案例為 `tests/test_member_progress.py`：以帳本 owner 開啟隔離儀表板，確認一位成員本月有效一筆、另一位只有上月分錄而顯示零筆，並排除作廢分錄。2026-11-27 的本機隔離 HTTP／SQLite 與獨立靜態三階段審查均通過。該案例未涵蓋所有登入角色或跨帳本邊界。
 
 ## 非本期範圍（Out of Scope）
 

@@ -175,6 +175,7 @@ for ($i = $prevStartDay; $i <= $prevDaysInMonth; $i++) {
         'month'    => (int) substr($d, 5, 2),
         'year'     => (int) substr($d, 0, 4),
         'isCurrent'=> false,
+        'isToday'  => false,
         'isPrev'   => true,
         'isNext'   => false,
     ];
@@ -206,6 +207,7 @@ while (count($calendarDays) < $totalCells) {
         'month'    => (int) substr($d, 5, 2),
         'year'     => (int) substr($d, 0, 4),
         'isCurrent'=> false,
+        'isToday'  => false,
         'isPrev'   => false,
         'isNext'   => true,
     ];
@@ -271,7 +273,7 @@ $flashMsg = is_string($msgRaw) ? $msgRaw : '';
                     </div>
                     <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
                         <a href="<?php echo h($ymPrevUrl); ?>" class="btn secondary sm">← 上月</a>
-                        <a href="<?php echo h($ymUrl($ym, $isSingleLedger ? $ledgerId : null)); ?>" class="btn sm">本月</a>
+                        <a href="<?php echo h($ymUrl($defaultYm, $isSingleLedger ? $ledgerId : null)); ?>" class="btn sm">本月</a>
                         <a href="<?php echo h($ymNextUrl); ?>" class="btn secondary sm">下月 →</a>
                         <?php if ($isSingleLedger): ?>
                             <a href="<?php echo h('./ledger.php?' . http_build_query(['ledger_id' => (string) $ledgerId, 'ym' => $ym])); ?>" class="btn primary sm">查看該帳本明細</a>

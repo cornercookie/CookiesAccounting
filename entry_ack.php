@@ -81,7 +81,7 @@ try {
         UPDATE entries
         SET ack_status = :ack_status,
             ack_user_id = :ack_user_id,
-            ack_at = datetime('now', 'localtime')
+            ack_at = datetime(\'now\', \'localtime\')
         WHERE id = :entry_id
           AND ledger_id = :ledger_id
           AND deleted = 0

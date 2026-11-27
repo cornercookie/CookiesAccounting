@@ -240,7 +240,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
         redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('無效的重複記錄編號。'));
     }
     // 驗證使用者對該帳本的存取權（ledger_access 已在開頭驗證，這裡再確認 recurring_entries 歸屬）
-    $ownStmt = $pdo->prepare('SELECT user_id, amount_cents, type, category, name FROM recurring_entries WHERE id = :id AND ledger_id = :ledger_id AND is_active = 1 LIMIT 1');
+    $ownStmt = $pdo->prepare('SELECT user_id, amount_cents, type, category, name, start_date, next_due_date FROM recurring_entries WHERE id = :id AND ledger_id = :ledger_id AND is_active = 1 LIMIT 1');
     $ownStmt->execute([':id' => $recurringId, ':ledger_id' => $ledgerId]);
     $recurring = $ownStmt->fetch();
     if ($recurring === false) {
@@ -248,29 +248,71 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
     }
 
     $entryDate = $today->format('Y-m-d');
-    $stmt = $pdo->prepare('
-        INSERT INTO entries
-            (ledger_id, user_id, amount_cents, type, category, entry_date, note, receipt_path, deleted, recurring_source_id,
-             currency, exchange_rate, original_amount_cents)
-        VALUES
-            (:ledger_id, :user_id, :amount_cents, :type, :category, :entry_date, :note, \'\', 0, :recurring_source_id,
-             \'TWD\', 10000, :amount_cents)
-    ');
-    $stmt->execute([
-        ':ledger_id'       => $ledgerId,
-        ':user_id'         => $userId,
-        ':amount_cents'    => (int) $recurring['amount_cents'],
-        ':type'            => $recurring['type'],
-        ':category'        => $recurring['category'],
-        ':entry_date'      => $entryDate,
-        ':note'            => '來自重複記錄：' . $recurring['name'],
-        ':recurring_source_id'=> $recurringId,
-    ]);
-    $entryId = (int) $pdo->lastInsertId();
+    $monthStart = $today->format('Y-m-01');
+    $monthEnd = $today->format('Y-m-t');
+    $transactionStarted = false;
+    try {
+        $pdo->exec('BEGIN IMMEDIATE');
+        $transactionStarted = true;
+
+        $duplicateStmt = $pdo->prepare('SELECT 1 FROM entries WHERE recurring_source_id = :id AND deleted = 0 AND entry_date BETWEEN :month_start AND :month_end LIMIT 1');
+        $duplicateStmt->execute([
+            ':id'          => $recurringId,
+            ':month_start' => $monthStart,
+            ':month_end'   => $monthEnd,
+        ]);
+        if ($duplicateStmt->fetchColumn() !== false) {
+            $pdo->exec('ROLLBACK');
+            $transactionStarted = false;
+            redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('本月已產生過此重複記錄。'));
+        }
+
+        $stmt = $pdo->prepare('
+            INSERT INTO entries
+                (ledger_id, user_id, amount_cents, type, category, entry_date, note, receipt_path, deleted, recurring_source_id,
+                 currency, exchange_rate, original_amount_cents)
+            VALUES
+                (:ledger_id, :user_id, :amount_cents, :type, :category, :entry_date, :note, \'\', 0, :recurring_source_id,
+                 \'TWD\', 10000, :amount_cents)
+        ');
+        $stmt->execute([
+            ':ledger_id'       => $ledgerId,
+            ':user_id'         => $userId,
+            ':amount_cents'    => (int) $recurring['amount_cents'],
+            ':type'            => $recurring['type'],
+            ':category'        => $recurring['category'],
+            ':entry_date'      => $entryDate,
+            ':note'            => '來自重複記錄：' . $recurring['name'],
+            ':recurring_source_id'=> $recurringId,
+        ]);
+        $entryId = (int) $pdo->lastInsertId();
+
+        $next = nextMonthlyDueDate((string) $recurring['start_date'], (string) $recurring['next_due_date'], $entryDate);
+        $updateStmt = $pdo->prepare('UPDATE recurring_entries SET next_due_date = :next, updated_at = datetime(\'now\', \'localtime\') WHERE id = :id AND ledger_id = :ledger_id');
+        $updateStmt->execute([
+            ':next'      => $next,
+            ':id'        => $recurringId,
+            ':ledger_id' => $ledgerId,
+        ]);
+
+        $pdo->exec('COMMIT');
+        $transactionStarted = false;
+    } catch (Throwable $e) {
+        if ($transactionStarted) {
+            try {
+                $pdo->exec('ROLLBACK');
+            } catch (Throwable $rollbackError) {
+                logError('recurring_generate rollback failed: ' . $rollbackError->getMessage());
+            }
+        }
+        logError('recurring_generate failed: ' . $e->getMessage());
+        redirect('./ledger.php?ledger_id=' . $ledgerId . '&error=1&msg=' . urlencode('產生失敗，請稍後再試。'));
+    }
+
     logAudit('recurring_generate', 'entry_id=' . $entryId . ' recurring_id=' . $recurringId . ' ledger_id=' . $ledgerId);
     $_SESSION['voice_played'] = 1;
     $_SESSION['voice_text'] = ($recurring['type'] === 'income' ? '收入' : '支出') . ' ' . formatCents((int) $recurring['amount_cents']) . ' 元已儲存';
-    redirect('./ledger.php?ledger_id=' . $ledgerId . '&success=1&msg=' . urlencode('已從重複記錄產生一筆記錄。'));
+    redirect('./ledger.php?ledger_id=' . $ledgerId . '&success=1&msg=' . urlencode('已從重複記錄產生一筆記錄。 下次預計日期：' . $next));
 }
 
 // 本帳查詢參數：月份（預設本月 Asia/Taipei）、單日（entry_date）、類別、類型、頁碼——皆為唯讀查詢
@@ -520,8 +562,7 @@ $members = $memberStmt->fetchAll();
 
 $success = (($_GET['success'] ?? '') === '1');
 $error   = (($_GET['error'] ?? '') === '1');
-$msgRaw  = $_GET['msg'] ?? '';
-$flashMsg = is_string($msgRaw) ? $msgRaw : ''; // 來自 redirect 的自訂提示文字（顯示時經 h() 轉義）
+$flashMsg = signedNotice(); // 來自 redirect 的已簽章提示文字（顯示時經 h() 轉義）
 $canWrite = in_array($accessRole, ['owner', 'member'], true);
 
 // 傳票號碼：新增記錄成功後以 lastInsertId 導回，組出與分錄表一致的編號（收-008／支-012）

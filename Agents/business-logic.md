@@ -152,7 +152,7 @@ stateDiagram-v2
     建立中 --> 啟用中: 驗證通過，is_active=1
     啟用中 --> 已停用: 點擊「停用」/ 編輯設 is_active=0
     啟用中 --> 已生成: 點擊「立即記一筆」→ 建立 Entry + 關聯 recurring_source_id
-    已生成 --> 啟用中: 可重複點擊生成多筆
+    已生成 --> 啟用中: 當月作廢後可重新生成；次月可再次生成
     已停用 --> 啟用中: 編輯設 is_active=1
 ```
 
@@ -160,7 +160,8 @@ stateDiagram-v2
 - 僅 `is_active=1` 可生成
 - 生成時 `entry_date = 今日`、`note = '來自重複記錄：' + name`
 - `recurring_source_id` 關聯回來源
-- `next_due_date` **不自動更新**（目前手動管理，未來可加排程）
+- 同一 Taipei 月份已有未作廢的來源分錄時不得重複生成；作廢分錄不阻止重新生成（[#34-E]）。
+- 生成後依 `start_date` 的日數逐月推進 `next_due_date` 至嚴格晚於今日；日數超過當月長度時收斂至月底（[#34-E]）。
 - **幣別限制（[#29]）**：僅支援台幣（TWD）。`recurring_entries` 表無 `currency`、`exchange_rate`、`original_amount_cents` 欄位；生成分錄時自動填入 `currency='TWD'`、`exchange_rate=10000`（basis points，即 1.0000）、`original_amount_cents=amount_cents`。未來若需支援多幣別重複記錄，才於 `recurring_entries` 表補加三欄位並修改生成邏輯。
 
 ---

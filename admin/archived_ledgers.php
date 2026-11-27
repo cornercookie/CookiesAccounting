@@ -13,7 +13,7 @@ $pdo  = getPdo();
 
 $success = (($_GET['success'] ?? '') === '1');
 $error   = (($_GET['error'] ?? '') === '1');
-$msg     = $_GET['msg'] ?? '';
+$msg     = signedNotice();
 
 // ---------------- POST：還原帳本（CSRF 驗證 + 預備陳述式）---------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

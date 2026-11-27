@@ -218,8 +218,7 @@ while (count($calendarDays) < $totalCells) {
 // === 錯誤/成功訊息 ===
 $success = (($_GET['success'] ?? '') === '1');
 $error   = (($_GET['error'] ?? '') === '1');
-$msgRaw  = $_GET['msg'] ?? '';
-$flashMsg = is_string($msgRaw) ? $msgRaw : '';
+$flashMsg = signedNotice();
 
 ?>
 <!DOCTYPE html>

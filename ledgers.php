@@ -13,7 +13,7 @@ $userId = (int) $user['id'];
 
 $success = (($_GET['success'] ?? '') === '1');
 $error   = (($_GET['error'] ?? '') === '1');
-$msg     = $_GET['msg'] ?? '';
+$msg     = signedNotice();
 
 // 自建帳本：任何登入者皆可建立屬於自己的帳本，建立者自動取得該帳本 owner 權限
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -72,6 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $archived = 1;
         $stmt = $pdo->prepare('UPDATE ledgers SET archived = :archived WHERE id = :id');
         $stmt->execute([':archived' => $archived, ':id' => $ledgerId]);
+        logAudit('ledger_archive', 'ledger_id=' . $ledgerId);
         redirect('./ledgers.php?success=1&msg=' . urlencode('帳本已封存，記錄完整保留；可至「已封存的帳本」頁面還原。'));
     }
     redirect('./ledgers.php?error=1');

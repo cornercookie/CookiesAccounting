@@ -47,6 +47,15 @@ function redirect(string $url): void
     if (!str_starts_with($url, './') && !str_starts_with($url, '../')) {
         $url = './' . $url;
     }
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        $queryString = parse_url($url, PHP_URL_QUERY);
+        if (is_string($queryString)) {
+            parse_str($queryString, $query);
+            if (isset($query['msg']) && is_string($query['msg'])) {
+                $url .= '&msg_sig=' . noticeSignature($query['msg']);
+            }
+        }
+    }
     header('Location: ' . $url, true, 302);
     exit;
 }
@@ -182,6 +191,27 @@ function checkCsrf(string $token): bool
         return false;
     }
     return hash_equals($_SESSION['csrf_token'], $token);
+}
+
+/**
+ * 以目前 Session 的 CSRF Token 簽署 redirect 提示文字。
+ */
+function noticeSignature(string $msg): string
+{
+    return hash_hmac('sha256', $msg, csrfToken());
+}
+
+/**
+ * 僅接受由 redirect() 簽署的提示文字，避免透過網址偽造通知。
+ */
+function signedNotice(): string
+{
+    $signature = inputString($_GET, 'msg_sig');
+    if ($signature === '') {
+        return '';
+    }
+    $msg = inputString($_GET, 'msg');
+    return hash_equals(noticeSignature($msg), $signature) ? $msg : '';
 }
 
 /**
@@ -360,6 +390,30 @@ function isValidDate(string $date): bool
 {
     $dt = DateTime::createFromFormat('Y-m-d', $date);
     return $dt !== false && $dt->format('Y-m-d') === $date;
+}
+
+/**
+ * 依起始日期的日數計算下一個每月預計日期，並將月底收斂至該月最後一天。
+ */
+function nextMonthlyDueDate(string $startDate, string $currentDue, string $today): string
+{
+    $anchorDay = (int) substr($startDate, 8, 2);
+    $year = (int) substr($currentDue, 0, 4);
+    $month = (int) substr($currentDue, 5, 2);
+
+    do {
+        if ($month === 12) {
+            $year++;
+            $month = 1;
+        } else {
+            $month++;
+        }
+        $monthStart = new DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+        $day = min($anchorDay, (int) $monthStart->format('t'));
+        $next = $monthStart->format('Y-m') . '-' . str_pad((string) $day, 2, '0', STR_PAD_LEFT);
+    } while ($next <= $today);
+
+    return $next;
 }
 
 /**

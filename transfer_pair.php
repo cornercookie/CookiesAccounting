@@ -143,8 +143,7 @@ foreach ($unpaired as $row) {
 
 $success = (($_GET['success'] ?? '') === '1');
 $error   = (($_GET['error'] ?? '') === '1');
-$msgRaw  = $_GET['msg'] ?? '';
-$flashMsg = is_string($msgRaw) ? $msgRaw : '';
+$flashMsg = signedNotice();
 ?>
 <!DOCTYPE html>
 <html lang="zh-TW">

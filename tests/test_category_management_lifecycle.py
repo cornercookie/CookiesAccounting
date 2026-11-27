@@ -1,4 +1,5 @@
 """Category management lifecycle regression; run with PHP_BIN."""
+import re
 import shutil
 import unittest
 from urllib.parse import parse_qs, unquote_plus, urlsplit
@@ -69,7 +70,12 @@ class TestCategoryManagementLifecycle(unittest.TestCase):
         self.assertEqual(status, 302)
         location = urlsplit(headers['Location'])
         self.assertEqual(location.path, './category_management.php')
-        self.assertEqual(parse_qs(location.query), {'error': ['1'], 'msg': ['合併失敗，請稍後再試。']})
+        query = parse_qs(location.query)
+        msg_sig = query.pop('msg_sig')
+        self.assertIsInstance(msg_sig, list)
+        self.assertEqual(len(msg_sig), 1)
+        self.assertRegex(msg_sig[0], r'^[0-9a-f]{64}$')
+        self.assertEqual(query, {'error': ['1'], 'msg': ['合併失敗，請稍後再試。']})
         with f.AccountingTest.connect() as db:
             self.assertEqual(db.execute('SELECT is_active FROM categories WHERE id=?', (ids[src],)).fetchone(), (1,))
             self.assertEqual(db.execute('SELECT is_active FROM categories WHERE id=?', (ids[dst],)).fetchone(), (1,))
@@ -104,7 +110,12 @@ class TestCategoryManagementLifecycle(unittest.TestCase):
                 self.assertEqual(location.netloc, '')
                 self.assertEqual(location.fragment, '')
                 self.assertEqual(location.path, './category_management.php')
-                self.assertEqual(parse_qs(location.query, keep_blank_values=True), {'error': ['1'], 'msg': [msg]})
+                query = parse_qs(location.query, keep_blank_values=True)
+                msg_sig = query.pop('msg_sig')
+                self.assertIsInstance(msg_sig, list)
+                self.assertEqual(len(msg_sig), 1)
+                self.assertRegex(msg_sig[0], r'^[0-9a-f]{64}$')
+                self.assertEqual(query, {'error': ['1'], 'msg': [msg]})
         with f.AccountingTest.connect() as db:
             self.assertEqual(db.execute('SELECT name,is_active FROM categories WHERE id=?', (ids[name50],)).fetchone(), (name50, 1))
             self.assertEqual(db.execute('SELECT name,is_active FROM categories WHERE id=?', (ids[distinct],)).fetchone(), (distinct, 1))

@@ -196,11 +196,12 @@ if ($editId !== false && $editId !== null) {
                     </div>
                 </div>
 
+                <?php $msg = signedNotice(); ?>
                 <?php if (($_GET['success'] ?? '') === '1'): ?>
-                    <p class="alert success" role="status"><?php echo h($_GET['msg'] ?? '操作成功完成。'); ?></p>
+                    <p class="alert success" role="status"><?php echo h($msg !== '' ? $msg : '操作成功完成。'); ?></p>
                 <?php endif; ?>
                 <?php if (($_GET['error'] ?? '') === '1'): ?>
-                    <p class="alert error" role="alert"><?php echo h($_GET['msg'] ?? '操作失敗。'); ?></p>
+                    <p class="alert error" role="alert"><?php echo h($msg !== '' ? $msg : '操作失敗。'); ?></p>
                 <?php endif; ?>
 
                 <!-- 新增/編輯表單：僅 owner 顯示 -->

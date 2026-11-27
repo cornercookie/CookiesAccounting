@@ -226,8 +226,10 @@ def main():
             ok_redirect(admin('delete_entry.php', {'csrf_token': csrf, 'id': eid, 'ledger_id': 1}), 'success=1')
             assert query(f'SELECT deleted FROM entries WHERE id={eid}') == [[1]]
             assert admin(f'export_pdf.php?ledger_id=1&entry={eid}')[0] == 404
-            assert admin('logout.php')[0] == 302
-            ok_redirect(admin('ledger.php?ledger_id=1'), 'login.php')
+            logout = admin('logout.php')
+            assert logout[0] == 200 and '確定要登出嗎'.encode() in logout[2]
+            ok_redirect(admin('logout.php', {'csrf_token': token(logout[2])}), 'login.php')
+            ok_redirect(admin('dashboard.php'), 'login.php')
             print('OK soft-delete persisted, deleted print denied, logout')
         finally:
             docker('stop', name)

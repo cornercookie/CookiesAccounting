@@ -14,7 +14,7 @@ $pdo  = getPdo();
 
 $success = (($_GET['success'] ?? '') === '1');
 $error   = (($_GET['error'] ?? '') === '1');
-$msg     = $_GET['msg'] ?? '';
+$msg     = signedNotice();
 
 // ---------------- POST：重新指定擁有者（CSRF 驗證 + 預備陳述式 + 交易）---------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

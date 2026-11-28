@@ -82,31 +82,33 @@ if ($databaseAvailable && $_SERVER['REQUEST_METHOD'] === 'POST') {
                         $pdo->prepare('DELETE FROM login_sessions WHERE login_at < :cutoff')
                             ->execute([':cutoff' => $cutoff]);
 
-                        // 寫入本次登入來源
-                        $pdo->prepare(
-                            'INSERT INTO login_sessions (user_id, ip, user_agent, login_at, is_first_seen)
-                             VALUES (:user_id, :ip, :user_agent, :login_at, 1)'
-                        )->execute([
-                            ':user_id'   => (int) $user['id'],
-                            ':ip'        => $ip,
-                            ':user_agent'=> $userAgent,
-                            ':login_at'  => $loginAt,
-                        ]);
-
                         // 比對歷史來源（IP + User-Agent），若為新來源則設定 session 提醒標記
                         // 僅以 IP 判斷在共享公網 IP 環境下準確性受限，故併同 User-Agent 一起比對
                         $histStmt = $pdo->prepare(
                             'SELECT COUNT(*) AS cnt FROM login_sessions
-                             WHERE user_id = :user_id AND ip = :ip AND user_agent = :user_agent AND id <> :cur_id'
+                             WHERE user_id = :user_id AND ip = :ip AND user_agent = :user_agent'
                         );
                         $histStmt->execute([
                             ':user_id'   => (int) $user['id'],
                             ':ip'        => $ip,
                             ':user_agent'=> $userAgent,
-                            ':cur_id'    => (int) $pdo->lastInsertId(),
                         ]);
                         $histRow = $histStmt->fetch();
-                        if ($histRow !== false && (int) $histRow['cnt'] === 0) {
+                        $isFirstSeen = ($histRow !== false && (int) $histRow['cnt'] === 0) ? 1 : 0;
+
+                        // 寫入本次登入來源
+                        $pdo->prepare(
+                            'INSERT INTO login_sessions (user_id, ip, user_agent, login_at, is_first_seen)
+                             VALUES (:user_id, :ip, :user_agent, :login_at, :is_first_seen)'
+                        )->execute([
+                            ':user_id'      => (int) $user['id'],
+                            ':ip'           => $ip,
+                            ':user_agent'   => $userAgent,
+                            ':login_at'     => $loginAt,
+                            ':is_first_seen'=> $isFirstSeen,
+                        ]);
+
+                        if ($isFirstSeen === 1) {
                             $_SESSION['show_login_notice'] = 1;
                             $_SESSION['login_notice_ip']   = $ip;
                             $_SESSION['login_notice_at']   = $loginAt;
